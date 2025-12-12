@@ -18,6 +18,19 @@ A lightweight, high-efficiency GUI wrapper for **yt-dlp**. Designed for archivin
     * **Batch Mode:** Import a `.txt` file to download multiple links at once.
     * **Subtitles:** Option to download English and Original language subtitles.
 * **Persistent History:** Tracks your recent downloads with options to Open Folder, Hide from List, or Delete File.
+ ## 💻 Supported Platforms & OS
+
+### Operating System
+* **Windows 10 / 11** (Native EXE support)
+* *Linux/macOS:* Not officially supported via EXE, but source code can be run with minor modifications.
+
+### Supported Websites
+While optimized for **YouTube**, yt-mini uses the powerful `yt-dlp` engine, meaning it supports thousands of websites, including:
+* **Video:** YouTube, Twitch, Vimeo, Dailymotion
+* **Social:** Twitter (X), Instagram, TikTok, Reddit, Facebook
+* **Audio:** SoundCloud, Bandcamp, Mixcloud
+
+*Note: Some websites may require specific formats or user authentication which are not yet fully implemented in the GUI.*
 
 ## 🛠️ Prerequisites
 
