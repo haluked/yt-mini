@@ -63,35 +63,30 @@ def get_all_ffmpeg_paths():
         if os.path.exists(p) and p not in found_paths: found_paths.append(p)
     return list(dict.fromkeys(found_paths))
 
-# --- YOU MUST HAVE BOTH OF THESE FUNCTIONS ---
-
+# --- OPEN FUNCTIONS ---
 def open_folder_safe(file_path):
-    # This was likely missing!
     file_path = os.path.normpath(file_path.strip())
     if os.path.exists(file_path):
         subprocess.run(['explorer', '/select,', file_path])
     else:
+        # Fallback: Open the folder if the file is gone
         folder = os.path.dirname(file_path)
         if os.path.exists(folder):
             os.startfile(folder)
         else:
             logging.warning(f"Failed to open path: {file_path}")
-            messagebox.showerror("Error", "Folder not found.")
+            messagebox.showerror("Error", f"Folder not found:\n{folder}")
 
 def open_file_safe(file_path):
-    # This opens the video file
     file_path = os.path.normpath(file_path.strip())
     if os.path.exists(file_path):
         try:
             os.startfile(file_path)
         except Exception as e:
-            logging.error(f"Failed to open file: {e}")
             messagebox.showerror("Error", f"Could not open file: {e}")
     else:
-        messagebox.showerror("Error", "File not found (it may have been moved or deleted).")
-
-# ---------------------------------------------
-
+        messagebox.showerror("Error", f"File not found at:\n{file_path}\n\nIt may have been moved or deleted.")
+        
 def cancel_download():
     global current_process
     if current_process:
@@ -149,10 +144,31 @@ def run_download_logic(urls, options, callbacks):
             if "WebM" in options['format']: command.extend(["-S", "vcodec:vp9", "--merge-output-format", "webm"])
             else: command.extend(["-S", "vcodec:h264", "--merge-output-format", "mp4"])
         else:
-            tgt = options['audio_fmt'].split(" - ")[0].lower()
-            q = "0" if "High" in options['audio_fmt'] else "5" if "Medium" in options['audio_fmt'] else "10"
+            # --- ROBUST AUDIO FORMAT LOGIC ---
+            raw_fmt = options['audio_fmt'].lower()
+            
+            # Fuzzy match the format name
+            if "opus" in raw_fmt:
+                tgt = "opus"
+            elif "aac" in raw_fmt:
+                tgt = "aac"
+            elif "m4a" in raw_fmt:
+                tgt = "m4a"
+            elif "vorbis" in raw_fmt:
+                tgt = "vorbis"
+            elif "wav" in raw_fmt:
+                tgt = "wav"
+            else:
+                tgt = "mp3" # Default if nothing else matches
+            
+            # Map Quality
+            if "high" in raw_fmt: q = "0"
+            elif "medium" in raw_fmt: q = "5"
+            else: q = "10"
+
             command.extend(["-x", "--audio-format", tgt, "--audio-quality", q])
             
+            # Metadata args...
             if options['meta_artist'] or options['meta_album']:
                 meta = ""
                 if options['meta_artist']: meta += f"-metadata artist=\"{options['meta_artist']}\" "
@@ -160,6 +176,17 @@ def run_download_logic(urls, options, callbacks):
                 command.extend(["--postprocessor-args", f"ffmpeg:{meta}"])
 
         command.append(video_url)
+        # --- DEBUGGER MODE ---  #hata belki
+        if options.get('debug', False):
+            cmd_str = " ".join(command)
+            # 1. Log to debug.log
+            logging.info(f"DEBUG COMMAND: {cmd_str}")
+            # 2. Print to VS Code Terminal
+            print(f"\n[DEBUG] Executing:\n{cmd_str}\n")
+            # 3. Save to file for easy reading
+            with open("last_command.txt", "w", encoding="utf-8") as f:
+                f.write(cmd_str)
+        # ---------------------
 
         try:
             current_process = subprocess.Popen(
@@ -186,8 +213,19 @@ def run_download_logic(urls, options, callbacks):
                 if line.startswith("DATA::"):
                     parts = line.split("::")
                     if len(parts) >= 5:
+                        raw_path = parts[1].strip()
+                        
+                        # --- CRITICAL PATH FIX: FORCE ABSOLUTE PATH ---
+                        if not os.path.isabs(raw_path):
+                            full_path = os.path.join(target_folder, raw_path)
+                            # This converts "video.mp4" into "C:\Users\Desktop\video.mp4"
+                            full_path = os.path.abspath(full_path)
+                        else:
+                            full_path = raw_path
+                        # ----------------------------------------------
+
                         entry = {
-                            "path": parts[1].strip(),
+                            "path": full_path,
                             "title": parts[2].strip(),
                             "duration": parts[3].strip(),
                             "size": format_size(parts[4])
