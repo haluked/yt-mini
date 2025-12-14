@@ -1,0 +1,4 @@
+ytdlp_path=C:\Users\haluk\AppData\Local\Microsoft\WinGet\Packages\yt-dlp.yt-dlp_Microsoft.Winget.Source_8wekyb3d8bbwe\yt-dlp.EXE
+ffmpeg_path=C:\Users\haluk\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg.Shared_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.0.1-full_build-shared\bin\ffmpeg.exe
+download_path=C:\Users\haluk\Desktop
+theme=dark
