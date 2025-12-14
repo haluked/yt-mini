@@ -6,6 +6,7 @@ import os
 import config
 import logic
 import ui_helpers
+#debugger vers
 
 # --- SETUP CUSTOMTKINTER ---
 ctk.set_appearance_mode("Dark")  # Default mode
@@ -489,6 +490,6 @@ ctk.CTkButton(frame_settings, text="Cancel", width=200, fg_color="transparent", 
 ctk.CTkButton(frame_settings, text="⚠️ Factory Reset", fg_color="transparent", text_color="red", hover_color="#ffdddd", command=do_reset).pack(side="bottom", pady=20)
 
 # Init
-update_vis()
-refresh_history_ui()
-app.mainloop()
+update_vis() # Set initial visibility based on mode
+refresh_history_ui() # Load history on startup
+app.mainloop() # Start the GUI event loop
