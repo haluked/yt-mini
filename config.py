@@ -97,14 +97,12 @@ def save_history_list(history_list):
         os.rename(temp_file, HISTORY_FILE)
     except Exception as e:
         logging.error(f"History Save Error: {e}")
-# -------------------------------------
-
 def add_to_history(entry):
     history = load_history()
     history = [x for x in history if x['path'] != entry['path']]
     history.insert(0, entry)
     history = history[:50]
-    save_history_list(history) # Now reuses the safe save function
+    save_history_list(history) #reuses the safe save function
 
 def factory_reset():
     try:
@@ -112,4 +110,5 @@ def factory_reset():
         if os.path.exists(HISTORY_FILE): os.remove(HISTORY_FILE)
         if os.path.exists(LOG_FILE): os.remove(LOG_FILE)
     except Exception as e:
+
         logging.error(f"Reset Error: {e}")
