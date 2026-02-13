@@ -136,13 +136,15 @@ def run_download_logic(urls, options, callbacks):
             command.extend(["--ffmpeg-location", options['ff_path']])
 
         if options['mode'] == "video":
-            if options['quality'] == "Best Possible": fmt = "bv+ba/b"
+            if options['quality'] == "Best Possible": 
+                # Use bv* to include all protocols (DASH/HLS) and prioritize merge
+                fmt = "bv*+ba/b"
             else:
-                #1080p is missing and also when 1080p is the best setting or sometimes
-                #  when you just select best setting ıt oftens doesnt work as intended- It fails to merge the video codec with sound codec only when you select best 
-                h = {"144": "144", "240": "240", "360": "360", "720": "720", "1440": "1440", "2k": "1440", "4k": "2160"}.get(options['quality'], "720")
+                # Added 1080 mapping
+                h = {"144": "144", "240": "240", "360": "360", "720": "720", "1080": "1080", "1440": "1440", "2k": "1440", "4k": "2160"}.get(options['quality'], "720")
                 fmt = f"bv*[height<={h}]+ba/b[height<={h}]"
             command.extend(["-f", fmt])
+            
             if "WebM" in options['format']: command.extend(["-S", "vcodec:vp9", "--merge-output-format", "webm"])
             else: command.extend(["-S", "vcodec:h264", "--merge-output-format", "mp4"])
         else:

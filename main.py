@@ -58,6 +58,15 @@ def toggle_theme():
     app_config["theme"] = new_mode.lower()
     config.save_config(app_config)
     btn_theme.configure(text=f"Switch to {('Light' if new_mode == 'Dark' else 'Dark')} Mode")
+def update_alert_visibility():
+    # Ensure frame_alert exists before trying to pack it
+    try:
+        if not app_config["ytdlp_path"] or not app_config["ffmpeg_path"]:
+            frame_alert.pack(side="top", fill="x")
+        else:
+            frame_alert.pack_forget()
+    except NameError:
+        pass # UI hasn't loaded yet
 
 def browse_folder():
     f = filedialog.askdirectory(initialdir=entry_path.get())
@@ -272,16 +281,31 @@ def show_settings():
     frame_main.pack_forget()
     frame_settings.pack(fill="both", expand=True)
 
-    # Clean up previous widgets in settings if any (optional, but good practice)
+    # Clear previous widgets
     for widget in frame_settings.winfo_children():
         widget.destroy()
 
-    # Rebuild Settings UI
-    ctk.CTkLabel(frame_settings, text="Settings & Setup", font=("Arial", 20, "bold")).pack(pady=30)
-    ctk.CTkLabel(frame_settings, text="Use 'Auto-Detect' to find installed tools.", text_color="gray").pack()
+    ctk.CTkLabel(frame_settings, text="First Time Setup", font=("Arial", 22, "bold")).pack(pady=(20, 10))
 
+    # --- BEGINNER INSTRUCTIONS ---
+    guide_text = (
+        "STEP 1: Click 'Install yt-dlp' and 'Install FFmpeg' below.\n"
+        "             (Wait for the black console windows to close)\n\n"
+        "STEP 2: Click 'Auto-Detect Paths' to find the installed tools.\n\n"
+        "STEP 3: If paths appear in the boxes, click 'Save & Return'.\n"
+        "If multiple FFmpeg is Found select the one starting With 'Gyan'"
+        
+    )
+    
+    lbl_guide = ctk.CTkLabel(frame_settings, text=guide_text, text_color="gray70", 
+                             justify="left", font=("Consolas", 12),
+                             fg_color=("gray90", "gray20"), corner_radius=6)
+    lbl_guide.pack(padx=20, pady=10, ipadx=10, ipady=10)
+    # -----------------------------
+
+    # Input Fields
     fs_yt = ctk.CTkFrame(frame_settings, fg_color="transparent")
-    fs_yt.pack(fill="x", padx=40, pady=10)
+    fs_yt.pack(fill="x", padx=40, pady=5)
     ctk.CTkLabel(fs_yt, text="yt-dlp:", width=80, anchor="w").pack(side="left")
     global entry_ytdlp 
     entry_ytdlp = ctk.CTkEntry(fs_yt)
@@ -289,33 +313,35 @@ def show_settings():
     entry_ytdlp.pack(side="left", fill="x", expand=True)
 
     fs_ff = ctk.CTkFrame(frame_settings, fg_color="transparent")
-    fs_ff.pack(fill="x", padx=40, pady=10)
+    fs_ff.pack(fill="x", padx=40, pady=5)
     ctk.CTkLabel(fs_ff, text="FFmpeg:", width=80, anchor="w").pack(side="left")
     global combo_ffmpeg
     combo_ffmpeg = ctk.CTkComboBox(fs_ff, values=[app_config["ffmpeg_path"]])
     combo_ffmpeg.set(app_config["ffmpeg_path"])
     combo_ffmpeg.pack(side="left", fill="x", expand=True)
 
+    # Install Buttons
     fs_inst = ctk.CTkFrame(frame_settings, fg_color="transparent")
-    fs_inst.pack(pady=20)
-    ctk.CTkButton(fs_inst, text="Install yt-dlp", command=lambda: logic.install_via_winget("yt-dlp")).pack(side="left", padx=10)
-    ctk.CTkButton(fs_inst, text="Install FFmpeg", command=lambda: logic.install_via_winget("Gyan.FFmpeg")).pack(side="left", padx=10)
+    fs_inst.pack(pady=10)
+    ctk.CTkButton(fs_inst, text="⬇ Install yt-dlp", width=140, command=lambda: logic.install_via_winget("yt-dlp")).pack(side="left", padx=10)
+    ctk.CTkButton(fs_inst, text="⬇ Install FFmpeg", width=140, command=lambda: logic.install_via_winget("Gyan.FFmpeg")).pack(side="left", padx=10)
 
-    ctk.CTkButton(frame_settings, text="Auto-Detect Paths", width=200, command=do_autodetect).pack(pady=10)
-    ctk.CTkSwitch(frame_settings, text="Enable Debug Mode (Log Commands)", variable=debug_mode).pack(pady=10) #yeni
-    ctk.CTkButton(frame_settings, text="Check Updates", width=200, fg_color="gray", command=lambda: logic.update_tools(entry_ytdlp.get())).pack(pady=10)
+    # Action Buttons
+    ctk.CTkButton(frame_settings, text="🔍 Auto-Detect Paths", width=200, fg_color="#3B8ED0", command=do_autodetect).pack(pady=10)
+    
+    ctk.CTkButton(frame_settings, text="✅ Save & Return", width=200, height=40, fg_color="green", hover_color="darkgreen", command=do_save_settings).pack(pady=(20, 10))
+    ctk.CTkButton(frame_settings, text="Cancel", width=200, fg_color="transparent", border_width=1, text_color=("black", "white"), command=show_main).pack()
+    
+    # Factory Reset
+    ctk.CTkButton(frame_settings, text="Factory Reset", fg_color="transparent", text_color="red", hover_color="#ffdddd", command=do_reset).pack(side="bottom", pady=20)
 
-    # SAVE & RETURN
-    ctk.CTkButton(frame_settings, text="Save & Return", width=200, height=40, fg_color="green", hover_color="darkgreen", command=do_save_settings).pack(pady=30)
-    
-    # CANCEL
-    ctk.CTkButton(frame_settings, text="Cancel", width=200, fg_color="transparent", border_width=1, text_color=("black", "white"), command=show_main).pack(pady=5)
-    
-    # FACTORY RESET (Now immediately below Cancel)
-    ctk.CTkButton(frame_settings, text="⚠️ Factory Reset", fg_color="transparent", text_color="red", hover_color="#ffdddd", command=do_reset).pack(pady=20)
+
 def show_main():
-    frame_settings.pack_forget(); frame_main.pack(fill="both", expand=True)
+    frame_settings.pack_forget()
+    frame_main.pack(fill="both", expand=True)
     app_config.update(config.load_config())
+    update_alert_visibility()
+
 def do_reset():
     if messagebox.askyesno("Reset", "Delete all settings?"):
         config.factory_reset(); app.destroy(); os._exit(0)
@@ -336,6 +362,14 @@ debug_mode = ctk.BooleanVar(value=False) # New global variable yeni
 frame_main = ctk.CTkFrame(app, fg_color="transparent")
 frame_main.pack(fill="both", expand=True)
 
+# --- ALERT FRAME (Hidden by default) ---
+frame_alert = ctk.CTkFrame(frame_main, fg_color="transparent")
+btn_alert = ctk.CTkButton(frame_alert, text="⚠️ SETUP REQUIRED: Begin the setup here", 
+                          fg_color="#d9534f", hover_color="#c9302c", 
+                          height=40, font=("Arial", 12, "bold"),
+                          command=show_settings)
+btn_alert.pack(fill="x", padx=20, pady=(10, 0))
+# ---------------------------------------
 # ... rest of the layout code ...
 
 # Header
@@ -422,7 +456,8 @@ ctk.CTkLabel(video_c, text="Format:").pack(side="left", padx=5)
 combo_vid_format = ctk.CTkOptionMenu(video_c, values=["WebM (VP9)", "MP4 (H264)"], width=130)
 combo_vid_format.pack(side="left", padx=5)
 ctk.CTkLabel(video_c, text="Quality:").pack(side="left", padx=5)
-combo_quality = ctk.CTkOptionMenu(video_c, values=["144", "240", "360", "720", "1440", "2k", "4k", "Best"], width=90)
+# Added "1080" to the values list
+combo_quality = ctk.CTkOptionMenu(video_c, values=["144", "240", "360", "720", "1080", "1440", "2k", "4k", "Best"], width=90)
 combo_quality.pack(side="left", padx=5)
 combo_quality.set("720")
 
@@ -491,4 +526,5 @@ ctk.CTkButton(frame_settings, text="⚠️ Factory Reset", fg_color="transparent
 # Init
 update_vis()
 refresh_history_ui()
+update_alert_visibility()
 app.mainloop()

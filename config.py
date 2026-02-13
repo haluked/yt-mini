@@ -2,7 +2,7 @@ import os
 import json
 import logging
 
-VERSION = "3.0"
+VERSION = "3.1"
 CONFIG_FILE = "config.txt"
 HISTORY_FILE = "history.json"
 LOG_FILE = "debug.log"
