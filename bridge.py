@@ -1,9 +1,10 @@
 import os
+import re
 import json
 import logging
 import uuid
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import threading
 from typing import Callable, Optional
 import yt_dlp
@@ -55,8 +56,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Private-Network", "true")
             self.send_header("Content-Type", ct)
-            safe_fname = urllib.parse.quote(filename)
-            self.send_header("Content-Disposition", f"attachment; filename=\"{filename}\"; filename*=UTF-8''{safe_fname}")
+            ascii_fname = re.sub(r'[^\x20-\x7E]', '_', filename)
+            safe_fname = urllib.parse.quote(filename, encoding='utf-8')
+            self.send_header("Content-Disposition", f"attachment; filename=\"{ascii_fname}\"; filename*=UTF-8''{safe_fname}")
             self.send_header("Content-Length", str(filesize))
             self.end_headers()
         else:
@@ -120,8 +122,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Private-Network", "true")
             self.send_header("Content-Type", ct)
             # URL-encode filename for Content-Disposition header
-            safe_fname = urllib.parse.quote(filename)
-            self.send_header("Content-Disposition", f"attachment; filename=\"{filename}\"; filename*=UTF-8''{safe_fname}")
+            ascii_fname = re.sub(r'[^\x20-\x7E]', '_', filename)
+            safe_fname = urllib.parse.quote(filename, encoding='utf-8')
+            self.send_header("Content-Disposition", f"attachment; filename=\"{ascii_fname}\"; filename*=UTF-8''{safe_fname}")
             self.send_header("Content-Length", str(filesize))
             self.end_headers()
 
@@ -290,13 +293,26 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             ydl_opts["ffmpeg_location"] = ff
 
         if mode == "video":
+            h_map = {"4k": "2160", "2160": "2160", "1440": "1440", "2k": "1440",
+                     "1080": "1080", "720": "720", "480": "480", "360": "360"}
+            h_limit = None
+            if "best" not in quality.lower():
+                for k, v in h_map.items():
+                    if k in quality.lower():
+                        h_limit = v
+                        break
+
             if "MKV" in fmt_choice:
                 ydl_opts["merge_output_format"] = "mkv"
-                ydl_opts["format"] = "bv*[height<=1080]+ba/b[height<=1080]"
+                ydl_opts["format"] = f"bv*[height<={h_limit}]+ba/b[height<={h_limit}]" if h_limit else "bv*+ba/b"
+            elif "WEBM" in fmt_choice:
+                ydl_opts["merge_output_format"] = "webm"
+                ydl_opts["format"] = f"bv*[height<={h_limit}]+ba/b[height<={h_limit}]" if h_limit else "bv*+ba/b"
+                ydl_opts["format_sort"] = ["vcodec:vp9"]
             else:
                 ydl_opts["merge_output_format"] = "mp4"
-                ydl_opts["format"] = "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]/bv*[height<=1080]+ba/b[height<=1080]"
-                ydl_opts["format_sort"] = ["vcodec:h264,res,acodec:m4a"]
+                ydl_opts["format"] = f"bv*[height<={h_limit}]+ba/b[height<={h_limit}]" if h_limit else "bv*+ba/b"
+                ydl_opts["format_sort"] = ["res", "vcodec:h264,vp9", "acodec:m4a,aac"]
         else:
             a_fmt = "mp3"
             for cand in ["opus", "aac", "m4a", "flac", "wav", "mp3"]:
@@ -312,6 +328,9 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
             }, {
                 "key": "FFmpegMetadata",
                 "add_metadata": True
+            }, {
+                "key": "FFmpegThumbnailsConvertor",
+                "format": "jpg"
             }, {
                 "key": "EmbedThumbnail",
                 "already_have_thumbnail": False
@@ -342,7 +361,7 @@ class BridgeServer:
 
     def start(self):
         try:
-            self.server = HTTPServer((HOST, PORT), BridgeRequestHandler)
+            self.server = ThreadingHTTPServer((HOST, PORT), BridgeRequestHandler)
             self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self._thread.start()
             logging.info(f"Bridge server running on http://{HOST}:{PORT}")

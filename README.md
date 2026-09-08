@@ -49,8 +49,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### 3. Build a Standalone Windows .EXE (Optional)
-To build a single, portable `.exe` file with the application icon:
+### 3. Build a Standalone Windows .EXE
+To build a single, portable `.exe` file with all theme assets and icon bundled:
 ```bash
-pyinstaller --noconsole --onefile --icon=app.ico main.py -n "yt-mini-v5"
+python -m PyInstaller --noconsole --onefile --icon=app.ico --collect-all customtkinter --collect-all yt_dlp --add-data "app.ico;." main.py -n "yt-mini-v5"
 ```

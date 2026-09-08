@@ -237,10 +237,11 @@ class DownloadEngine:
 
         # Build Output Template
         if is_playlist:
+            pl_dir = "%(playlist_title,playlist|Playlists)s"
             if auto_folder:
-                out_tmpl = "%(playlist_title)s/%(playlist_index)02d - %(title)s.%(ext)s" if enumerate_items else "%(playlist_title)s/%(title)s.%(ext)s"
+                out_tmpl = f"{pl_dir}/%(playlist_index&{{:02d}} - |)s%(title)s.%(ext)s"
             else:
-                out_tmpl = "%(playlist_index)02d - %(title)s.%(ext)s" if enumerate_items else "%(title)s.%(ext)s"
+                out_tmpl = "%(playlist_index&{:02d} - |)s%(title)s.%(ext)s" if enumerate_items else "%(title)s.%(ext)s"
         else:
             out_tmpl = "%(title)s.%(ext)s"
 
@@ -278,18 +279,23 @@ class DownloadEngine:
                 ydl_opts["format"] = f"bv*[height<={h_limit}]+ba/b[height<={h_limit}]" if h_limit else "bv*+ba/b"
                 ydl_opts["format_sort"] = ["vcodec:vp9"]
             else:
-                # MP4 (H.264 / AAC for maximum universal compatibility)
+                # MP4 Universal
+                # Note: Do not restrict bv* to [ext=mp4] because 1440p/4K YouTube streams
+                # are exclusively VP9/AV1. FFmpeg will remux/merge them into an MP4 container seamlessly.
                 ydl_opts["merge_output_format"] = "mp4"
                 if h_limit:
-                    ydl_opts["format"] = f"bv*[ext=mp4][height<={h_limit}]+ba[ext=m4a]/b[ext=mp4][height<={h_limit}]/bv*[height<={h_limit}]+ba/b[height<={h_limit}]"
+                    ydl_opts["format"] = f"bv*[height<={h_limit}]+ba/b[height<={h_limit}]"
                 else:
-                    ydl_opts["format"] = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
-                ydl_opts["format_sort"] = ["vcodec:h264,res,acodec:m4a"]
+                    ydl_opts["format"] = "bv*+ba/b"
+                ydl_opts["format_sort"] = ["res", "vcodec:h264,vp9", "acodec:m4a,aac"]
 
             if self.options.get("download_subtitles", False):
                 ydl_opts["writesubtitles"] = True
                 ydl_opts["writeautomaticsub"] = True
-                ydl_opts["subtitleslangs"] = ["en.*", "all"]
+                ydl_opts["subtitleslangs"] = ["en.*", "en"]
+                if "postprocessors" not in ydl_opts:
+                    ydl_opts["postprocessors"] = []
+                ydl_opts["postprocessors"].append({"key": "FFmpegSubtitlesConvertor", "format": "srt"})
 
         else:
             # Audio Extraction Mode
@@ -313,6 +319,8 @@ class DownloadEngine:
             }]
             if self.options.get("embed_metadata", True):
                 pps.append({"key": "FFmpegMetadata", "add_metadata": True})
+                # Convert WebP/PNG thumbnails to JPEG before embedding into MP3 ID3 tags
+                pps.append({"key": "FFmpegThumbnailsConvertor", "format": "jpg"})
                 pps.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
                 ydl_opts["writethumbnail"] = True
 
@@ -343,7 +351,15 @@ class DownloadEngine:
 
         status = d.get("status")
         if status == "downloading":
-            pct = d.get("_percent") or 0.0
+            pct = d.get("_percent")
+            if pct is None:
+                downloaded = d.get("downloaded_bytes", 0)
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                if total > 0:
+                    pct = (downloaded / total) * 100.0
+                else:
+                    pct = 0.0
+
             speed = d.get("_speed_str") or ""
             eta = d.get("_eta_str") or ""
             total_str = d.get("_total_bytes_str") or d.get("_total_bytes_estimate_str") or ""

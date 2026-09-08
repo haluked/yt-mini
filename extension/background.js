@@ -60,10 +60,11 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   } catch (e) {}
 });
 
-// Listen for tab URL navigation / updates
+// Listen for tab URL navigation / updates (including SPA in-page video switches)
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && tab.url) {
-    inspectTabUrl(tabId, tab.url);
+  const targetUrl = changeInfo.url || (changeInfo.status === "complete" ? tab.url : null);
+  if (targetUrl) {
+    inspectTabUrl(tabId, targetUrl);
   }
 });
 

@@ -175,6 +175,9 @@ class ModernYtMiniApp(ctk.CTk):
         self.bridge = BridgeServer(on_download=self._on_external_download)
         self.bridge.start()
 
+        # Handle window close gracefully
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
         # Build Main Layout
         self._build_header()
         self._build_navigation()
@@ -183,6 +186,17 @@ class ModernYtMiniApp(ctk.CTk):
         # Start on Downloader view
         self._switch_view("downloader")
         self._check_clipboard_on_start()
+
+    def _on_close(self):
+        """Cleanly abort downloads and stop bridge before exiting."""
+        try:
+            if self.active_engine:
+                self.active_engine.cancel()
+            if hasattr(self, "bridge") and self.bridge:
+                self.bridge.stop()
+        except Exception:
+            pass
+        self.destroy()
 
     def _on_external_download(self, payload: dict):
         """Handle download requests dispatched from browser extension."""
@@ -198,13 +212,17 @@ class ModernYtMiniApp(ctk.CTk):
                 self.seg_format.set(fmt)
                 self._on_format_changed(fmt)
             try:
-                self.deiconify()
-                self.lift()
+                self.state("normal")
+                self.attributes("-topmost", True)
+                self.attributes("-topmost", False)
                 self.focus_force()
             except Exception:
                 pass
             self._inspect_url()
-            self._toggle_download_action()
+            self.lbl_prog_status.configure(
+                text="🌐 Streaming download directly to Brave/Chrome (Ctrl + J)...",
+                text_color=COLOR_ACCENT
+            )
 
         self.dispatch(_apply)
 

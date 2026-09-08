@@ -7,3 +7,6 @@ history.json
 *.part
 *.ytdl
 bin/
+build/
+dist/
+*.spec

@@ -52,9 +52,7 @@ def save_config(config_data: dict):
         temp_file = CONFIG_FILE + ".tmp"
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=4, ensure_ascii=False)
-        if os.path.exists(CONFIG_FILE):
-            os.remove(CONFIG_FILE)
-        os.rename(temp_file, CONFIG_FILE)
+        os.replace(temp_file, CONFIG_FILE)
     except Exception as e:
         logging.error(f"Error saving config: {e}")
 
@@ -76,9 +74,7 @@ def save_history(history_list: list):
         temp_file = HISTORY_FILE + ".tmp"
         with open(temp_file, "w", encoding="utf-8") as f:
             json.dump(history_list, f, indent=4, ensure_ascii=False)
-        if os.path.exists(HISTORY_FILE):
-            os.remove(HISTORY_FILE)
-        os.rename(temp_file, HISTORY_FILE)
+        os.replace(temp_file, HISTORY_FILE)
     except Exception as e:
         logging.error(f"Error saving history: {e}")
 
@@ -117,7 +113,7 @@ def open_folder_safely(file_path: str) -> tuple[bool, str]:
     file_path = os.path.normpath(str(file_path).strip())
     if os.path.exists(file_path):
         try:
-            subprocess.run(["explorer", f"/select,{file_path}"], check=False)
+            subprocess.run(["explorer", f'/select,"{file_path}"'], check=False)
             return True, "Folder opened"
         except Exception as e:
             return False, f"Failed to open Explorer: {e}"
