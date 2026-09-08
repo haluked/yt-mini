@@ -1,3 +1,9 @@
+__pycache__/
+*.pyc
+config.json
 history.json
-config.txt
-debug.log
+*.log
+*.tmp
+*.part
+*.ytdl
+bin/
