@@ -54,3 +54,13 @@ To build a single, portable `.exe` file with all theme assets and icon bundled:
 ```bash
 python -m PyInstaller --noconsole --onefile --icon=app.ico --collect-all customtkinter --collect-all yt_dlp --add-data "app.ico;." main.py -n "yt-mini-v5"
 ```
+
+---
+
+## 🧩 Browser Extensions
+
+yt-mini v5 comes with companion browser extensions that detect downloadable video/audio streams in real time with **zero bandwidth consumption**:
+
+- **Brave / Chrome / Edge**: Located in [`extension/`](extension/). Load unpacked via `brave://extensions` or `chrome://extensions`.
+- **Mozilla Firefox**: Located in [`extension-firefox/`](extension-firefox/). Load temporary add-on via `about:debugging#/runtime/this-firefox`.
+

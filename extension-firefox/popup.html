@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>yt-mini</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Top Header -->
+    <header class="header">
+      <div class="brand">
+        <span class="logo">⚡</span>
+        <span class="brand-title">yt-mini</span>
+        <span class="badge">v5</span>
+      </div>
+      <div id="status-pill" class="status-pill status-checking">
+        <span class="status-dot"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+    </header>
+
+    <!-- Companion Offline Card -->
+    <div id="offline-banner" class="offline-card hidden">
+      <div class="offline-icon">⚠️</div>
+      <div class="offline-content">
+        <h4>Desktop App Not Running</h4>
+        <p>yt-mini needs its desktop companion to merge high quality video streams.</p>
+        <div class="offline-actions">
+          <button id="btn-autostart" class="btn-launch">
+            🚀 Auto-Start yt-mini
+          </button>
+          <a id="btn-github" href="https://github.com/haluked/yt-mini" target="_blank" class="btn-github">
+            📥 GitHub
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Media Card (When media found on tab) -->
+    <div id="media-card" class="media-card hidden">
+      <div class="media-thumb-wrap">
+        <img id="media-thumb" src="" alt="Thumbnail" class="media-thumb">
+        <span id="media-duration" class="duration-tag">0:00</span>
+      </div>
+      <div class="media-info">
+        <h3 id="media-title" class="media-title">Title loading...</h3>
+        <p id="media-uploader" class="media-author">Author</p>
+        <span id="playlist-badge" class="playlist-badge hidden">📁 Playlist Detected</span>
+      </div>
+    </div>
+
+    <!-- No Media on Page Message -->
+    <div id="no-media-card" class="no-media-card hidden">
+      <span class="no-media-icon">📺</span>
+      <p>No downloadable media on this tab.</p>
+      <small>Navigate to YouTube, TikTok, Reddit, or paste a link below.</small>
+    </div>
+
+    <!-- Format Selector -->
+    <div id="format-section" class="format-section hidden">
+      <label class="section-label">Select Output Format:</label>
+      <div class="format-pills">
+        <button class="pill active" data-format="MP4 (H.264)" data-mode="video">🎬 MP4 Video</button>
+        <button class="pill" data-format="MP3" data-mode="audio">🎵 MP3 Audio</button>
+        <button class="pill" data-format="Opus" data-mode="audio">🎧 Opus Audio</button>
+      </div>
+    </div>
+
+    <!-- Live Progress Section (Appears during download) -->
+    <div id="progress-card" class="progress-card hidden">
+      <div class="progress-header">
+        <span id="prog-title" class="prog-title">⚡ Processing Download...</span>
+        <span id="prog-pct" class="prog-pct">0%</span>
+      </div>
+      <div class="progress-bar-track">
+        <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+      </div>
+      <div class="progress-footer">
+        <span id="prog-speed" class="prog-speed">Connecting...</span>
+        <span id="prog-eta" class="prog-eta"></span>
+      </div>
+    </div>
+
+    <!-- Download Completed Card (Browser Ctrl+J confirmation) -->
+    <div id="complete-card" class="complete-card hidden">
+      <div class="complete-icon">🎉</div>
+      <div class="complete-body">
+        <h4>Download Ready!</h4>
+        <p id="complete-filename" class="complete-filename">video.mp4</p>
+        <span class="badge-downloads">✓ Saved to Browser Downloads (Ctrl + J)</span>
+        <button id="btn-open-downloads" class="btn-downloads">
+          📂 Open in Downloads (Ctrl + J)
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Download Action Button -->
+    <button id="btn-download-now" class="btn-primary hidden">
+      ⚡ Download Video Now
+    </button>
+
+    <!-- Custom URL Input Section -->
+    <div class="custom-url-section">
+      <div class="divider"><span>or paste any link</span></div>
+      <div class="custom-input-group">
+        <input type="text" id="input-custom-url" placeholder="Paste link from any of 1000+ sites...">
+        <button id="btn-custom-download" class="btn-secondary">⬇</button>
+      </div>
+    </div>
+
+    <!-- Toast / Notification message -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
