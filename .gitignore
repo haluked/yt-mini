@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# PyInstaller
+*.manifest
+*.spec
+build/
+dist/
+
+# Testing & IDE
+.pytest_cache/
+.coverage
+htmlcov/
+.idea/
+.vscode/
+
+# Application binaries & caches
+bin/ffmpeg.exe
+bin/ffprobe.exe
+*.log
