@@ -133,6 +133,21 @@ class AppWindow(tk.Tk):
         self._build_ui()
         self.status_label.configure(text=STATUS_READY)
 
+        # Pencereyi ekranın ortasına konumlandır
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        cx = max(50, (sw - WINDOW_WIDTH) // 2)
+        cy = max(50, (sh - WINDOW_HEIGHT) // 2)
+        self.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{cx}+{cy}")
+
+        # Pencereyi öne ve ekrana getir
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self.attributes('-topmost', True)
+        self.after(300, lambda: self.attributes('-topmost', False))
+
     def _build_ui(self):
         """Tüm arayüz elemanlarını 8px ızgara ritminde inşa eder."""
         container = tk.Frame(self, bg=BG_PRIMARY, padx=PAD_WINDOW, pady=PAD_WINDOW)
