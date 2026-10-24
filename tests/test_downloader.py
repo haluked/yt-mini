@@ -40,8 +40,10 @@ def test_translate_error():
     assert "ffmpeg" in engine._translate_error(err_ffmpeg)
 
 
-@patch("core.downloader.yt_dlp.YoutubeDL")
-def test_fetch_info_success(mock_ydl_cls):
+@patch("core.downloader._get_ydl_class")
+def test_fetch_info_success(mock_get_ydl):
+    mock_ydl_cls = MagicMock()
+    mock_get_ydl.return_value = mock_ydl_cls
     mock_instance = MagicMock()
     mock_ydl_cls.return_value.__enter__.return_value = mock_instance
     mock_instance.extract_info.return_value = {
@@ -81,13 +83,16 @@ def test_cancellation_during_hook():
         reason="test",
     )
 
-    with patch("core.downloader.yt_dlp.YoutubeDL") as mock_ydl:
+    with patch("core.downloader._get_ydl_class") as mock_get_ydl:
+        mock_ydl_cls = MagicMock()
+        mock_get_ydl.return_value = mock_ydl_cls
+
         def fake_download(urls):
             # hook'u çağır
-            hook = mock_ydl.call_args[0][0]["progress_hooks"][0]
+            hook = mock_ydl_cls.call_args[0][0]["progress_hooks"][0]
             hook({"status": "downloading", "total_bytes": 1000, "downloaded_bytes": 100})
 
-        mock_ydl.return_value.__enter__.return_value.download.side_effect = fake_download
+        mock_ydl_cls.return_value.__enter__.return_value.download.side_effect = fake_download
 
         with pytest.raises(DownloadCancelledException):
             engine.download("https://example.com/v", selection, "C:/dummy", cancel_event=cancel_evt)

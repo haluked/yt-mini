@@ -668,6 +668,14 @@ class AppWindow(tk.Tk):
         self.thumb_label.configure(image="", text="[ Tray Modu ]")
         gc.collect()
 
+        # Windows Çalışma Kümesi (Working Set) bellek optimizasyonu
+        if os.name == "nt":
+            try:
+                import ctypes
+                ctypes.windll.kernel32.SetProcessWorkingSetSize(-1, -1, -1)
+            except Exception:
+                pass
+
     def restore_from_tray(self):
         """Pencereyi tray'den geri getirir."""
         self.deiconify()

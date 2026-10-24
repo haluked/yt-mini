@@ -17,9 +17,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-import yt_dlp
-from yt_dlp.utils import DownloadError, ExtractorError
-
 from core.detector import detect_platform, is_valid_url
 from core.codec_selector import SelectionResult, select_best_format, get_available_resolutions
 from core.sanitization import sanitize_filename
@@ -106,6 +103,12 @@ class DownloadCancelledException(Exception):
     pass
 
 
+def _get_ydl_class():
+    """yt-dlp kütüphanesini yalnızca ihtiyaç duyulduğunda lazy import eder."""
+    import yt_dlp
+    return yt_dlp.YoutubeDL
+
+
 class DownloadEngine:
     """yt-dlp indirme ve bilgi çekme motoru."""
 
@@ -149,7 +152,8 @@ class DownloadEngine:
         if self.ffmpeg_dir:
             ydl_opts["ffmpeg_location"] = self.ffmpeg_dir
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        YoutubeDL = _get_ydl_class()
+        with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if not info:
                 raise ValueError("Medya bilgisi alınamadı.")
@@ -319,7 +323,8 @@ class DownloadEngine:
             if postprocessors:
                 ydl_opts["postprocessors"] = postprocessors
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        YoutubeDL = _get_ydl_class()
+        with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
         return downloaded_file[0]
