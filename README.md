@@ -85,8 +85,8 @@ fosforlu kalem sarısı yalnızca **seçili** olanı işaretler.
 ### 1. Ortam Kurulumu
 Depoyu klonlayıp geliştirici ortamını tek komutla kurabilirsiniz:
 ```cmd
-git clone https://github.com/haluk/ff-dlp-viewer.git
-cd ff-dlp-viewer
+git clone https://github.com/haluked/yt-mini.git
+cd yt-mini
 dev_setup.bat
 ```
 *(veya manuel olarak:)*
@@ -115,14 +115,14 @@ veya
 ```cmd
 python installer/build.py
 ```
-*Bu komut PyInstaller ile bağımsız uygulamayı derler, `bin/ffmpeg.exe` dosyasını hazırlar, Inno Setup ile `dist/ff-dlp-viewer-Setup-v1.0.0.exe` dosyasını ve `.sha256` özetini üretir.*
+*Bu komut PyInstaller ile bağımsız uygulamayı derler, `bin/ffmpeg.exe` dosyasını hazırlar, Inno Setup ile `dist/yt-mini-Setup-v2.0.0.exe` dosyasını ve `.sha256` özetini üretir.*
 
 ---
 
 ## Proje Klasör Yapısı
 
 ```
-ff-dlp-viewer/
+yt-mini/
 ├── core/                       # Çekirdek iş mantığı
 │   ├── detector.py             # URL platform tespiti
 │   ├── codec_selector.py       # Saf fonksiyonel kodek/konteyner seçici
