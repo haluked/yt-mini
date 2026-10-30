@@ -1,11 +1,11 @@
-; Inno Setup 6 Scripti - ff-dlp-viewer
+; Inno Setup 6 Scripti - yt-mini
 ; Türkçe arayüzlü, %LOCALAPPDATA% altına yönetici izni gerektirmeyen temiz kurulum
 
-#define MyAppName "ff-dlp-viewer"
-#define MyAppVersion "1.0.0"
+#define MyAppName "yt-mini"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Haluk"
-#define MyAppURL "https://github.com/haluk/ff-dlp-viewer"
-#define MyAppExeName "ff-dlp-viewer.exe"
+#define MyAppURL "https://github.com/haluked/yt-mini"
+#define MyAppExeName "yt-mini.exe"
 
 [Setup]
 AppId={{D37E8492-9C81-4B2E-A1E4-7832B6E1F091}
@@ -20,7 +20,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=ff-dlp-viewer-Setup-v{#MyAppVersion}
+OutputBaseFilename=yt-mini-Setup-v{#MyAppVersion}
 SetupIconFile=app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -37,7 +37,7 @@ Name: "autostart"; Description: "Windows açıldığında sistem tepsisinde (tra
 
 [Files]
 ; PyInstaller ile derlenmiş ana uygulama dosyaları
-Source: "..\dist\ff-dlp-viewer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\yt-mini\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; ffmpeg ikilisi (bin klasörüne yerleşir)
 Source: "..\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion external; Check: FileExists(ExpandConstant('{src}\..\bin\ffmpeg.exe'))
 

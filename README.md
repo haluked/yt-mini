@@ -1,34 +1,42 @@
-# ff-dlp-viewer
+# yt-mini (v2.0)
 
-> Windows için hafif, sistem tepsisinde (tray) yaşayan, yt-dlp tabanlı video ve ses indirme aracı.
+> Windows için hafif, sistem tepsisinde (tray) yaşayan, yt-dlp ve ffmpeg destekli video ve ses indirme aracı.
 
 [![Python](https://img.shields.io/badge/Python-3.11+-4B8BBE?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-7DBA84?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-78A1BB?style=flat-square&logo=windows)](https://microsoft.com/windows)
+[![License: MIT](https://img.shields.io/badge/License-MIT-8CBE9C?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-93BCD2?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![Tests](https://img.shields.io/badge/Tests-42_Passed-success?style=flat-square)](tests/)
 
 ---
 
 ## Ekran Görüntüsü
 
+"Kırtasiye defteri" düzeni: sıcak kağıt zemin, solda defterin kırmızı kenar çizgisi,
+fosforlu kalem sarısı yalnızca **seçili** olanı işaretler.
+
 ```
 +--------------------------------------------------------------+
-| ff-dlp-viewer                                        [YOUTUBE] |
+| [yt]  yt-mini                                    [ YOUTUBE ] |
+|       Hafif Video & Ses İndirici (v2.0)                      |
 +--------------------------------------------------------------+
-| [ https://www.youtube.com/watch?v=... ] [Yapıştır] [Bilgi Getir]
-+--------------------------------------------------------------+
-| +----------+  Örnek Video Başlığı 4K                         |
-| |  [Öniz]  |  Süre: 04:35 | Platform: YouTube                |
-| +----------+  Seçim: AV1+OPUS -> .webm [Stream Copy]         |
-+--------------------------------------------------------------+
-| [ [Video İndir] ]  [ Sadece Ses ]                            |
-| +----------------------------------------------------------+ |
-| | Çözünürlük: [ En İyi (Otomatik) v ]                      | |
-| | [ ] MP4 Olarak Kaydet                                    | |
-| +----------------------------------------------------------+ |
-| [======================================            ] %64.2   |
-| %64.2 | 12.4 MB/s | Kalan: 18 sn               45 MB / 70 MB |
-| [ İNDİR ]  [ İPTAL ]                         [ Klasörü Aç ]  |
+|  BAĞLANTI                                                    |
+|  -----------                                                 |
+|  [ Bağlantıyı buraya yapıştırın...   ] [Yapıştır] [Bilgi Getir]
+|  YouTube · Instagram · TikTok · X bağlantıları desteklenir    |
+|  ----------------------------------------------------------- |
+|  MEDYA                                                       |
+|  -----------                                                 |
+|  +------------+  Test YouTube 4K Video                       |
+|  | önizleme   |  YouTube · 03:35 · 5 kalite                   |
+|  +------------+  AV1 + OPUS -> .webm · kopyalama              |
+|  [Video] [Sadece Ses]                                        |
+|  Kalite  [En İyi] [2160p] [1080p] [720p] [480p]              |
+|  [x] MP4 olarak kaydet                                       |
+|  i  Akış olduğu gibi kopyalanır, yeniden kodlanmaz.           |
+|  ----------------------------------------------------------- |
+|  [|||||||||||||||||||||||||||                 ]               |
+|  %64 · 12.4 MB/s                         45.0 MB / 70.0 MB   |
+|  [ İndir ]  [ İptal ]                       [ Klasörü Aç ]    |
 +--------------------------------------------------------------+
 ```
 
@@ -58,9 +66,9 @@
 
 ## Son Kullanıcı Kurulumu
 
-1. [GitHub Releases](https://github.com/haluk/ff-dlp-viewer/releases) sayfasından en son `ff-dlp-viewer-Setup-v1.0.0.exe` dosyasını indirin.
+1. [GitHub Releases](https://github.com/haluked/yt-mini/releases) sayfasından en son `yt-mini-Setup-v2.0.0.exe` dosyasını indirin.
 2. Kurulumu çalıştırın.
-   - Kurulum `%LOCALAPPDATA%\Programs\ff-dlp-viewer` dizinine yapılır; **yönetici izni (UAC) gerektirmez**.
+   - Kurulum `%LOCALAPPDATA%\Programs\yt-mini` dizinine yapılır; **yönetici izni (UAC) gerektirmez**.
    - Python, pip veya ffmpeg kurmanıza gerek yoktur; tüm bileşenler paketin içinde hazır gelir.
    - İsteğe bağlı olarak "Windows açıldığında sistem tepsisinde otomatik başlat" seçeneğini işaretleyebilirsiniz.
 
@@ -123,8 +131,8 @@ ff-dlp-viewer/
 │   └── updater.py              # GitHub Releases API ve SHA-256 doğrulayıcı
 ├── ui/                         # Piksel kullanıcı arayüzü
 │   ├── app_window.py           # Ana Tkinter penceresi
-│   ├── theme.py                # Pastel renk paleti ve tipografi
-│   ├── widgets.py              # Keskin piksel buton, kart ve ilerleme çubuğu
+│   ├── theme.py                # Kağıt/mürekkep renk paleti ve tipografi
+│   ├── widgets.py              # Buton, giriş, çip, onay kutusu, ilerleme çubuğu
 │   ├── dialogs.py              # Hata ve onay pencereleri
 │   └── strings.py              # Merkezi Türkçe metinler
 ├── tray/                       # Sistem tepsisi yönetimi

@@ -20,8 +20,8 @@ from ui.dialogs import show_confirm, show_error, show_warning
 
 import threading
 
-MUTEX_NAME = "Local\\ff_dlp_viewer_single_instance_mutex"
-RESTORE_EVENT_NAME = "Local\\ff_dlp_viewer_restore_event"
+MUTEX_NAME = "Local\\yt_mini_single_instance_mutex"
+RESTORE_EVENT_NAME = "Local\\yt_mini_restore_event"
 
 
 def acquire_single_instance_mutex():

@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 from urllib.request import Request, urlopen
 
-CURRENT_APP_VERSION = "1.0.0"
-GITHUB_REPO = "haluk/ff-dlp-viewer"  # GitHub proje yolu
+CURRENT_APP_VERSION = "2.0.0"
+GITHUB_REPO = "haluked/yt-mini"  # GitHub proje yolu
 
 
 @dataclass(frozen=True)

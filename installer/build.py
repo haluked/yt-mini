@@ -62,7 +62,7 @@ def build_pyinstaller():
         "--clean",
         "--onedir",
         "--windowed",
-        "--name", "ff-dlp-viewer",
+        "--name", "yt-mini",
     ]
 
     if icon_path.is_file():
@@ -85,7 +85,7 @@ def build_pyinstaller():
         raise RuntimeError("PyInstaller derlemesi başarısız oldu!")
 
     # ffmpeg'i paket içi bin/ altına kopyala
-    output_bin = DIST_DIR / "ff-dlp-viewer" / "bin"
+    output_bin = DIST_DIR / "yt-mini" / "bin"
     output_bin.mkdir(exist_ok=True)
     src_ffmpeg = BIN_DIR / "ffmpeg.exe"
     if src_ffmpeg.is_file():

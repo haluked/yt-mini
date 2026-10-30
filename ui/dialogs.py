@@ -1,110 +1,134 @@
-"""Piksel temalı açılır pencereler (diyaloglar)."""
+"""Kırtasiye defteri temalı açılır pencereler.
+
+Kural: kart içinde kart yok. Diyalog tek bir kağıt yaprağıdır; 1px mürekkep
+çerçeve, üstte renkli durum karesi, altta sağa yaslı butonlar.
+"""
 
 from __future__ import annotations
 import tkinter as tk
 from typing import Callable, Optional
 
 from ui.theme import (
-    BG_PRIMARY,
-    BG_SURFACE,
-    BG_SUNKEN,
-    BORDER_DARK,
-    BORDER_THICK,
-    TEXT_MAIN,
-    TEXT_MUTED,
-    ACCENT_AMBER,
-    ACCENT_CORAL,
-    ACCENT_GREEN,
-    FONT_SECTION,
+    AMBER,
+    CORAL,
     FONT_BODY,
-    FONT_BODY_BOLD,
+    FONT_SECTION,
+    HILITE,
+    INK,
+    INK_SOFT,
+    PAPER,
+    PAPER_LINE,
+    SAGE,
 )
-from ui.widgets import PixelButton, PixelCard
+from ui.widgets import PixelButton
 
 
 class PixelMessageBox(tk.Toplevel):
-    """Piksel estetiğinde özel mesaj ve onay penceresi."""
+    """Sade kağıt diyaloğu: bilgi, uyarı ve onay için tek bileşen."""
 
     def __init__(
         self,
         parent,
         title: str,
         message: str,
-        dialog_type: str = "info",  # "info", "warning", "confirm"
+        dialog_type: str = "info",  # "info", "warning", "error", "confirm"
         on_confirm: Optional[Callable[[], None]] = None,
         confirm_text: str = "Tamam",
-        cancel_text: str = "İptal",
+        cancel_text: str = "Vazgeç",
     ):
         super().__init__(parent)
         self.title(title)
         self.resizable(False, False)
-        self.configure(bg=BG_PRIMARY)
+        self.configure(bg=PAPER)
         self.transient(parent)
         self.grab_set()
 
         self.on_confirm = on_confirm
         self.result = False
 
-        card = PixelCard(self, bg=BG_SURFACE, border_color=BORDER_DARK, padx=16, pady=16)
-        card.pack(fill="both", expand=True, padx=12, pady=12)
+        if dialog_type == "warning":
+            accent, tone = AMBER, "primary"
+        elif dialog_type == "error":
+            accent, tone = CORAL, "danger"
+        elif dialog_type == "confirm":
+            accent, tone = HILITE, "primary"
+        else:
+            accent, tone = SAGE, "primary"
 
-        # Başlık ve Rozet rengi
-        accent = ACCENT_AMBER if dialog_type == "warning" else (ACCENT_CORAL if dialog_type == "error" else ACCENT_GREEN)
-        header_frame = tk.Frame(card.inner, bg=BG_SURFACE)
-        header_frame.pack(fill="x", pady=(0, 10))
+        # 1px mürekkep çerçeve
+        border = tk.Frame(self, bg=INK, padx=1, pady=1)
+        border.pack(fill="both", expand=True)
 
-        indicator = tk.Frame(header_frame, bg=accent, width=12, height=12)
-        indicator.pack(side="left", padx=(0, 8))
+        body = tk.Frame(border, bg=PAPER, padx=18, pady=16)
+        body.pack(fill="both", expand=True)
 
-        lbl_title = tk.Label(header_frame, text=title, font=FONT_SECTION, bg=BG_SURFACE, fg=TEXT_MAIN)
-        lbl_title.pack(side="left")
+        head = tk.Frame(body, bg=PAPER)
+        head.pack(fill="x")
 
-        # Mesaj
-        lbl_msg = tk.Label(
-            card.inner,
+        tk.Frame(head, bg=accent, width=9, height=9).pack(side="left", padx=(0, 8))
+        tk.Label(
+            head,
+            text=title,
+            font=FONT_SECTION,
+            bg=PAPER,
+            fg=INK,
+            bd=0,
+            highlightthickness=0,
+        ).pack(side="left")
+
+        tk.Label(
+            body,
             text=message,
             font=FONT_BODY,
-            bg=BG_SURFACE,
-            fg=TEXT_MAIN,
+            bg=PAPER,
+            fg=INK_SOFT,
             justify="left",
-            wraplength=360,
-        )
-        lbl_msg.pack(fill="x", pady=(0, 16))
+            anchor="w",
+            wraplength=340,
+            bd=0,
+            highlightthickness=0,
+        ).pack(fill="x", pady=(10, 0))
 
-        # Butonlar
-        btn_frame = tk.Frame(card.inner, bg=BG_SURFACE)
-        btn_frame.pack(fill="x")
+        tk.Frame(body, bg=PAPER_LINE, height=1).pack(fill="x", pady=(14, 12))
 
-        if dialog_type == "confirm":
-            btn_cancel = PixelButton(
-                btn_frame,
-                text=cancel_text,
-                command=self._on_cancel,
-                bg_color=BG_SUNKEN,
-                padx=12,
-                pady=4,
-            )
-            btn_cancel.pack(side="right", padx=(8, 0))
+        buttons = tk.Frame(body, bg=PAPER)
+        buttons.pack(fill="x")
 
         btn_ok = PixelButton(
-            btn_frame,
+            buttons,
             text=confirm_text,
             command=self._on_ok,
-            bg_color=accent,
+            tone=tone,
             padx=16,
-            pady=4,
+            pady=6,
         )
         btn_ok.pack(side="right")
 
-        # Pencereyi ortala
+        if dialog_type == "confirm":
+            btn_cancel = PixelButton(
+                buttons,
+                text=cancel_text,
+                command=self._on_cancel,
+                tone="neutral",
+                padx=12,
+                pady=6,
+            )
+            btn_cancel.pack(side="right", padx=(0, 8))
+
+        self.bind("<Escape>", lambda e: self._on_cancel())
+        self.bind("<Return>", lambda e: self._on_ok())
+
+        # Pencereyi ebeveynin ortasına yerleştir
         self.update_idletasks()
-        w = self.winfo_reqwidth()
+        w = max(360, self.winfo_reqwidth())
         h = self.winfo_reqheight()
         pw = parent.winfo_width()
         ph = parent.winfo_height()
         px = parent.winfo_rootx()
         py = parent.winfo_rooty()
-        self.geometry(f"{max(380, w)}x{h}+{px + (pw - w)//2}+{py + (ph - h)//2}")
+        x = px + max(0, (pw - w) // 2)
+        y = py + max(0, (ph - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
     def _on_ok(self):
         self.result = True
@@ -126,4 +150,10 @@ def show_warning(parent, title: str, message: str):
 
 
 def show_confirm(parent, title: str, message: str, on_confirm: Callable[[], None]):
-    PixelMessageBox(parent, title=title, message=message, dialog_type="confirm", on_confirm=on_confirm)
+    PixelMessageBox(
+        parent,
+        title=title,
+        message=message,
+        dialog_type="confirm",
+        on_confirm=on_confirm,
+    )

@@ -29,9 +29,9 @@ def create_pixel_tray_icon(is_active: bool = False) -> Image.Image:
     img = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    border_color = (45, 43, 42, 255)       # #2D2B2A Kömür
-    fill_color = (125, 186, 132, 255) if is_active else (120, 161, 187, 255) # Pastel Yeşil veya Mavi
-    sunken_color = (234, 229, 220, 255)   # #EAE5DC
+    border_color = (40, 39, 31, 255)        # #28271F Mürekkep
+    fill_color = (140, 190, 156, 255) if is_active else (147, 188, 210, 255)  # Adaçayı / Gök mavisi
+    sunken_color = (241, 233, 215, 255)     # #F1E9D7 Kağıt
 
     # Alt disk/tepsi gövdesi
     draw.rectangle([4, 20, 27, 27], fill=sunken_color, outline=border_color, width=2)

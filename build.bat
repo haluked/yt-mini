@@ -1,4 +1,10 @@
 @echo off
 chcp 65001 >nul
-python installer\build.py
+cd /d "%~dp0"
+
+set "PY=python"
+where python >nul 2>&1
+if errorlevel 1 set "PY=py"
+
+%PY% installer\build.py
 pause

@@ -1,32 +1,38 @@
 @echo off
 chcp 65001 >nul
+cd /d "%~dp0"
 echo ======================================================
-echo ff-dlp-viewer - Geliştirici Ortamı Kurulumu
+echo ff-dlp-viewer - Gelistirici Ortami Kurulumu
 echo ======================================================
 
 where python >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [HATA] Python bulunamadı! Lütfen Python 3.11+ kurun ve PATH'e ekleyin.
+if errorlevel 1 (
+    echo [HATA] Python bulunamadi! Lutfen Python 3.11+ kurun ve PATH'e ekleyin.
     pause
     exit /b 1
 )
 
-echo [1/3] Python sanal ortamı (venv) kontrol ediliyor...
+echo [1/3] Python sanal ortami (venv) kontrol ediliyor...
 if not exist ".venv" (
-    echo Sanal ortam oluşturuluyor (.venv)...
+    echo Sanal ortam olusturuluyor (.venv)...
     python -m venv .venv
+    if errorlevel 1 (
+        echo [HATA] Sanal ortam olusturulamadi.
+        pause
+        exit /b 1
+    )
 )
 
-echo [2/3] Bağımlılıklar yükleniyor...
-call .venv\Scripts\activate.bat
+echo [2/3] Bagimliliklar yukleniyor...
+call ".venv\Scripts\activate.bat"
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-echo [3/3] Birim testleri çalıştırılıyor...
+echo [3/3] Birim testleri calistiriliyor...
 python -m pytest tests/
 
 echo ======================================================
-echo [BAŞARILI] Geliştirici ortamı hazır!
-echo Çalıştırmak için: python main.py
+echo [BASARILI] Gelistirici ortami hazir!
+echo Calistirmak icin: run.bat  (veya: python main.py)
 echo ======================================================
 pause

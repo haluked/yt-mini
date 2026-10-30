@@ -16,7 +16,7 @@ def test_ui_initialization_and_widgets():
         return
 
     # Başlık ve başlangıç durumu kontrolü
-    assert "ff-dlp-viewer" in app.title()
+    assert "yt-mini" in app.title()
     assert app.url_entry is not None
     assert app.btn_download is not None
 

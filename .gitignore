@@ -26,3 +26,10 @@ htmlcov/
 bin/ffmpeg.exe
 bin/ffprobe.exe
 *.log
+
+# Workspace & internal notes
+TeamMembers.xlsx
+.impeccable/
+AGENTS.md.txt
+global-agents.md
+project-prompt.md
