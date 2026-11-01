@@ -8,7 +8,7 @@ ff-dlp-viewer GitHub'a veya son kullanıcılara yayınlanmadan önce doğrulanma
   - Gradient, blur, glow ve emoji içermeyen sade retro masaüstü dili korundu.
 
 - [x] **Kod Kalitesi ve Birim Testleri**:
-  - `python -m pytest tests/` ile 42 birim testinin tamamı başarıyla geçiyor (`42 passed in 0.24s`).
+  - `python -m pytest tests/` ile 44 birim testinin tamamı başarıyla geçiyor.
   - YouTube 4K, 1080p, TikTok, Instagram ve X format JSON örnekleriyle saf kodek seçici test edildi.
   - Dosya sanitization (Windows yasak karakterler, path traversal, MAX_PATH) doğrulandı.
 

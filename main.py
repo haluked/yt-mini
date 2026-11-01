@@ -109,21 +109,32 @@ def main():
             def _on_result(info: UpdateInfo):
                 def _ui():
                     app.status_label.configure(text=f"Mevcut Sürüm: v{CURRENT_APP_VERSION}")
+                    lines = []
                     if info.has_update:
-                        msg = (
-                            f"Yeni bir sürüm mevcut!\n\n"
-                            f"Mevcut: v{info.current_version}\n"
-                            f"Yeni: v{info.latest_version}\n\n"
-                            f"Yenilikler:\n{info.release_notes[:300]}\n\n"
-                            f"İndirme bağlantısı: {info.download_url or 'GitHub Releases'}"
-                        )
-                        show_warning(app, "Güncelleme Mevcut", msg)
+                        lines.append(f"Yeni bir yt-mini sürümü mevcut! (v{info.latest_version})\n")
+                        lines.append(f"Mevcut: v{info.current_version}")
+                        if info.release_notes:
+                            lines.append(f"\nYenilikler:\n{info.release_notes[:250]}\n")
+                        if info.download_url:
+                            lines.append(f"İndirme bağlantısı: {info.download_url}")
                     else:
-                        show_warning(
-                            app,
-                            "Güncelleme Denetimi",
-                            f"ff-dlp-viewer en güncel sürümde (v{CURRENT_APP_VERSION}).",
-                        )
+                        lines.append(f"yt-mini en güncel sürümde (v{CURRENT_APP_VERSION}).")
+
+                    if info.ytdlp_latest_version:
+                        lines.append("\n----------------------------------------")
+                        lines.append("İndirme Motoru (yt-dlp):")
+                        if info.ytdlp_has_update:
+                            lines.append(
+                                f"Motor için yeni sürüm mevcut: v{info.ytdlp_latest_version}\n"
+                                f"(Mevcut: v{info.ytdlp_current_version})\n"
+                                f"Platform uyumluluğu için güncelleme yapılması önerilir."
+                            )
+                        else:
+                            lines.append(f"yt-dlp motoru güncel (v{info.ytdlp_current_version}).")
+
+                    msg = "\n".join(lines)
+                    title = "Güncelleme Mevcut" if (info.has_update or info.ytdlp_has_update) else "Güncelleme Denetimi"
+                    show_warning(app, title, msg)
 
                 app.after(0, _ui)
 

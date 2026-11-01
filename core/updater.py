@@ -27,6 +27,9 @@ class UpdateInfo:
     download_url: Optional[str] = None
     expected_sha256: Optional[str] = None
     asset_name: Optional[str] = None
+    ytdlp_has_update: bool = False
+    ytdlp_current_version: str = ""
+    ytdlp_latest_version: str = ""
 
 
 def get_current_versions() -> dict[str, str]:
@@ -41,6 +44,39 @@ def get_current_versions() -> dict[str, str]:
         "app": CURRENT_APP_VERSION,
         "yt_dlp": yt_version,
     }
+
+
+def check_ytdlp_update(timeout: int = 5) -> tuple[bool, str, str]:
+    """PyPI JSON API üzerinden yt-dlp kütüphanesinin en güncel sürümünü sorgular.
+
+    Dönüş: (has_update, current_version, latest_version)
+    """
+    try:
+        import yt_dlp
+        current_ver = str(getattr(yt_dlp.version, "__version__", "")).strip()
+    except Exception:
+        current_ver = ""
+
+    api_url = "https://pypi.org/pypi/yt-dlp/json"
+    req = Request(
+        api_url,
+        headers={
+            "User-Agent": f"yt-mini/{CURRENT_APP_VERSION}",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        latest_ver = str(data.get("info", {}).get("version", "")).strip()
+        if not latest_ver:
+            return False, current_ver, current_ver
+
+        has_update = _is_newer_version(latest_ver, current_ver) if current_ver else False
+        return has_update, current_ver, latest_ver
+    except Exception:
+        return False, current_ver, current_ver
 
 
 def verify_file_sha256(filepath: str, expected_hash: str) -> bool:
@@ -107,6 +143,9 @@ def check_for_updates(repo: str = GITHUB_REPO) -> UpdateInfo:
             except Exception:
                 pass
 
+        # yt-dlp motor güncelleme denetimi (PyPI)
+        ytdlp_has_update, ytdlp_cur, ytdlp_latest = check_ytdlp_update(timeout=5)
+
         return UpdateInfo(
             has_update=has_update,
             current_version=CURRENT_APP_VERSION,
@@ -115,15 +154,22 @@ def check_for_updates(repo: str = GITHUB_REPO) -> UpdateInfo:
             download_url=download_url,
             expected_sha256=expected_sha,
             asset_name=asset_name,
+            ytdlp_has_update=ytdlp_has_update,
+            ytdlp_current_version=ytdlp_cur,
+            ytdlp_latest_version=ytdlp_latest,
         )
 
     except Exception:
         # Ağ hatası veya henüz release olmaması durumunda
+        ytdlp_has_update, ytdlp_cur, ytdlp_latest = check_ytdlp_update(timeout=3)
         return UpdateInfo(
             has_update=False,
             current_version=CURRENT_APP_VERSION,
             latest_version=CURRENT_APP_VERSION,
             release_notes="Güncelleme sunucusuna erişilemedi veya henüz yayınlanan yeni bir sürüm yok.",
+            ytdlp_has_update=ytdlp_has_update,
+            ytdlp_current_version=ytdlp_cur,
+            ytdlp_latest_version=ytdlp_latest,
         )
 
 

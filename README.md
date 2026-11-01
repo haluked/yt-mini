@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-4B8BBE?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-8CBE9C?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-93BCD2?style=flat-square&logo=windows)](https://microsoft.com/windows)
-[![Tests](https://img.shields.io/badge/Tests-42_Passed-success?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-44_Passed-success?style=flat-square)](tests/)
 
 ---
 
@@ -59,6 +59,7 @@ fosforlu kalem sarısı yalnızca **seçili** olanı işaretler.
   - YouTube, TikTok, Instagram, X (Twitter) bağlantılarını tanır; TikTok ve Instagram'ın yerel birleşik H.264+AAC akışlarını doğrudan kopyalar.
 - **Güvenli ve Sağlam Mimari**:
   - yt-dlp doğrudan Python kütüphane API'siyle çağrılır (komut satırı enjeksiyonu riski yoktur).
+  - PyPI ve GitHub API entegrasyonuyla yt-dlp motorunun ve uygulamanın güncelliğini sistem tepsisinden tek tıkla denetleme.
   - Dosya adları Windows dosya sistemi yasak karakterlerine (`< > : " / \ | ? *`) ve `MAX_PATH` sınırına karşı temizlenir.
   - Windows adlandırılmış Mutex ile tekil örnek garantisi (aynı anda çift kopya açılmaz).
 
@@ -100,7 +101,7 @@ pip install -r requirements.txt
 ```cmd
 python -m pytest tests/
 ```
-*42 adet birim testi platform tespiti, sanitization, saf kodek seçimi, tray ve arayüz başlatmasını doğrular.*
+*44 adet birim testi platform tespiti, sanitization, saf kodek seçimi, yt-dlp & tray güncelleyici ve arayüz başlatmasını doğrular.*
 
 ### 3. Uygulamayı Kaynaktan Başlatma
 ```cmd
@@ -128,7 +129,7 @@ yt-mini/
 │   ├── codec_selector.py       # Saf fonksiyonel kodek/konteyner seçici
 │   ├── downloader.py           # yt-dlp Python API indirme motoru
 │   ├── sanitization.py         # Dosya adı ve yol güvenlik filtreleri
-│   └── updater.py              # GitHub Releases API ve SHA-256 doğrulayıcı
+│   └── updater.py              # GitHub Releases ve PyPI yt-dlp API güncelleyici & SHA-256 doğrulayıcı
 ├── ui/                         # Piksel kullanıcı arayüzü
 │   ├── app_window.py           # Ana Tkinter penceresi
 │   ├── theme.py                # Kağıt/mürekkep renk paleti ve tipografi

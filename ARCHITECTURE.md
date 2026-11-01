@@ -58,7 +58,7 @@ ff-dlp-viewer/
 │   ├── codec_selector.py       # Saf fonksiyonel kodek/konteyner seçici & kural motoru
 │   ├── downloader.py           # yt-dlp Python API sarmalayıcısı (Worker thread & callback)
 │   ├── sanitization.py         # Dosya adı temizleme (Windows yasak karakterler, traversal)
-│   └── updater.py              # GitHub Releases API kontrolü ve SHA-256 doğrulayıcı
+│   └── updater.py              # GitHub Releases ve PyPI yt-dlp API güncelleyici & SHA-256 doğrulayıcı
 │
 ├── ui/                         # Piksel kullanıcı arayüzü
 │   ├── __init__.py
@@ -184,7 +184,6 @@ WhatsApp / Steam modelinde çalışır:
 - ffmpeg ikilisi uygulamanın kendi `bin/` klasöründe yer alır; sistem `PATH` ortam değişkenine dokunulmaz.
 
 ### C. Güncelleme Mekanizması
-- GitHub API'den son sürüm etiketi kontrol edilir (`/repos/{user}/{repo}/releases/latest`).
-- Yeni sürüm varsa: Değişiklik notları ve boyut gösterilir.
-- İndirilen yeni `Setup.exe` için `SHA-256` doğrulaması yapılır.
-- Onay verildiğinde eski uygulama kapatılır, yeni setup sessizce çalıştırılır.
+- **Uygulama Güncellemesi**: GitHub API'den son sürüm etiketi kontrol edilir (`/repos/{user}/{repo}/releases/latest`). Yeni sürüm varsa değişiklik notları ve indirme bağlantısı gösterilir; indirilen yeni `Setup.exe` için `SHA-256` doğrulaması yapılır.
+- **İndirme Motoru (yt-dlp) Güncellemesi**: PyPI JSON API (`https://pypi.org/pypi/yt-dlp/json`) üzerinden yt-dlp'nin en güncel kararlı sürümü sorgulanır ve kurulu sürümle CalVer karşılaştırması yapılır. Platform algoritmalarındaki güncellemeler kullanıcıya sistem tepsisinden tek tıkla şeffafça bildirilir.
+- Onay verildiğinde eski uygulama kapatılır, yeni setup güvenle çalıştırılır.

@@ -39,7 +39,7 @@ Gereksiz "AI dashboard" süslemeleri, yüzlerce megabaytlık Electron veya ağı
 - **MP4 Uyum Koruması**: Kullanıcı "MP4 olarak indir" seçtiğinde, kodek uyumsuzluğu varsa (ör. VP9/Opus) açık uyarı ve dönüştürme/remux seçeneği sunulur.
 - **Gelişmiş Mod**: İleri düzey kullanıcılar için manuel kodek/konteyner seçimi (varsayılan gizli).
 - **Gerçek Windows Kurulumu**: Inno Setup ile tek parça `Setup.exe`, `%LOCALAPPDATA%` altına yönetici izni gerektirmeden kurulum, Başlat/Masaüstü kısayolları ve temiz Uninstaller.
-- **Sistem İçi Güncelleyici**: GitHub Releases API ve SHA-256 doğrulama ile yt-dlp, ffmpeg ve uygulama güncelleme kontrolü.
+- **Sistem İçi Güncelleyici**: GitHub Releases API (yt-mini uygulama güncellemeleri, SHA-256 doğrulama) ve PyPI API (yt-dlp indirme motoru sürüm kontrolü) ile bileşenlerin her zaman güncel kalmasını sağlar.
 
 ## Brand Commitments
 

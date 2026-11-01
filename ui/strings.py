@@ -78,8 +78,8 @@ CONFIRM_EXIT_DOWNLOADING = "Şu anda devam eden bir indirme işlemi var.\n\nUygu
 CONFIRM_TITLE = "Çıkış Onayı"
 
 # Sistem Tepsisi (Tray)
-TRAY_OPEN = "ff-dlp-viewer'ı Aç"
+TRAY_OPEN = "yt-mini'yi Aç"
 TRAY_CHECK_UPDATES = "Güncellemeleri Denetle..."
 TRAY_EXIT = "Tamamen Çık"
-TRAY_DOWNLOADING_TOOLTIP = "ff-dlp-viewer (İndiriliyor...)"
-TRAY_IDLE_TOOLTIP = "ff-dlp-viewer (Boşta)"
+TRAY_DOWNLOADING_TOOLTIP = "yt-mini (İndiriliyor...)"
+TRAY_IDLE_TOOLTIP = "yt-mini (Boşta)"

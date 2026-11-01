@@ -1,5 +1,5 @@
 # ff-dlp-viewer Python Bağımlılıkları (Sabit Sürümler)
-yt-dlp==2026.8.19
+yt-dlp==2026.10.26
 pillow>=10.0.0
 pystray>=0.19.5
 pyinstaller>=6.0.0
