@@ -15,34 +15,26 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
 
-#define COLOR_PAPER       RGB(250, 247, 238)
-#define COLOR_PAPER_LINE  RGB(226, 221, 208)
-#define COLOR_MARGIN_RED  RGB(224, 102, 102)
-#define COLOR_INK         RGB(40, 40, 40)
-#define COLOR_INK_SOFT    RGB(120, 115, 110)
-#define COLOR_HILITE      RGB(242, 232, 90)
-#define COLOR_SAGE        RGB(56, 120, 89)
-#define COLOR_CORAL       RGB(205, 92, 92)
-#define COLOR_WHITE       RGB(255, 255, 255)
-#define COLOR_BORDER      RGB(50, 50, 50)
-
+#define IDC_GRP_URL           1000
 #define IDC_EDIT_URL          1001
 #define IDC_BTN_PASTE         1002
 #define IDC_BTN_FETCH         1003
-#define IDC_STATIC_TITLE      1004
-#define IDC_STATIC_META       1005
-#define IDC_RADIO_VIDEO       1006
-#define IDC_RADIO_AUDIO       1007
-#define IDC_COMBO_RES         1008
-#define IDC_CHK_FORCE_MP4     1009
-#define IDC_COMBO_AUDIO       1010
-#define IDC_STATIC_REASON     1011
-#define IDC_PROGRESS          1012
-#define IDC_STATIC_STATUS     1013
-#define IDC_BTN_DOWNLOAD      1014
-#define IDC_BTN_CANCEL        1015
-#define IDC_BTN_OPEN_FOLDER   1016
-#define IDC_BTN_CHOOSE_FOLDER 1017
+#define IDC_GRP_MEDIA         1004
+#define IDC_STATIC_TITLE      1005
+#define IDC_STATIC_META       1006
+#define IDC_RADIO_VIDEO       1007
+#define IDC_RADIO_AUDIO       1008
+#define IDC_COMBO_RES         1009
+#define IDC_CHK_FORCE_MP4     1010
+#define IDC_COMBO_AUDIO       1011
+#define IDC_STATIC_REASON     1012
+#define IDC_GRP_DOWNLOAD      1013
+#define IDC_PROGRESS          1014
+#define IDC_STATIC_STATUS     1015
+#define IDC_BTN_DOWNLOAD      1016
+#define IDC_BTN_CANCEL        1017
+#define IDC_BTN_OPEN_FOLDER   1018
+#define IDC_BTN_CHOOSE_FOLDER 1019
 
 #define ID_TRAY_RESTORE       2001
 #define ID_TRAY_EXIT          2002
@@ -66,13 +58,9 @@ static HWND g_hBtnCancel = NULL;
 static HWND g_hBtnOpenFolder = NULL;
 static HWND g_hBtnChooseFolder = NULL;
 
-static HBRUSH g_brPaper = NULL;
-static HBRUSH g_brWhite = NULL;
-static HBRUSH g_brHilite = NULL;
 static HFONT g_fontTitle = NULL;
-static HFONT g_fontSection = NULL;
-static HFONT g_fontBody = NULL;
-static HFONT g_fontBodyBold = NULL;
+static HFONT g_fontBold = NULL;
+static HFONT g_fontNormal = NULL;
 static HFONT g_fontSmall = NULL;
 
 static NOTIFYICONDATAW g_nid;
@@ -126,42 +114,6 @@ static void choose_folder_com(HWND hWnd)
         }
         pfd->lpVtbl->Release(pfd);
     }
-}
-
-static void draw_custom_button(LPDRAWITEMSTRUCT pdis, COLORREF bg_color, COLORREF fg_color, const wchar_t *text)
-{
-    HDC hdc = pdis->hDC;
-    RECT rc = pdis->rcItem;
-    BOOL is_down = (pdis->itemState & ODS_SELECTED);
-    BOOL is_disabled = (pdis->itemState & ODS_DISABLED);
-
-    if (is_disabled) {
-        bg_color = RGB(220, 220, 215);
-        fg_color = COLOR_INK_SOFT;
-    }
-
-    HBRUSH br = CreateSolidBrush(bg_color);
-    FillRect(hdc, &rc, br);
-    DeleteObject(br);
-
-    /* 1.5px crisp pixel border */
-    HPEN pen = CreatePen(PS_SOLID, 1, COLOR_BORDER);
-    HPEN old_pen = (HPEN)SelectObject(hdc, pen);
-    HBRUSH old_br = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
-    SelectObject(hdc, old_br);
-    SelectObject(hdc, old_pen);
-    DeleteObject(pen);
-
-    /* Text */
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, fg_color);
-    SelectObject(hdc, g_fontBodyBold);
-
-    if (is_down) {
-        OffsetRect(&rc, 1, 1);
-    }
-    DrawTextW(hdc, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 }
 
 static void on_fetch_callback(int success, const MediaMetadata *meta, const wchar_t *err, void *user_data)
@@ -322,153 +274,141 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 wcsncat(g_download_dir, L"\\Downloads", MAX_PATH - 1);
             }
 
-            /* Create Fonts */
-            g_fontTitle = CreateFontW(22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            /* Clean native Segoe UI fonts */
+            g_fontTitle = CreateFontW(20, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_fontSection = CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            g_fontBold = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_fontBody = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_fontBodyBold = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            g_fontNormal = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
             g_fontSmall = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 
-            g_brPaper = CreateSolidBrush(COLOR_PAPER);
-            g_brWhite = CreateSolidBrush(COLOR_WHITE);
-            g_brHilite = CreateSolidBrush(COLOR_HILITE);
-
             HINSTANCE hInst = ((LPCREATESTRUCT)lParam)->hInstance;
 
-            /* 1. URL Edit */
+            /* =========================================================
+               GROUP 1: URL & BAĞLANTI (x=20, y=45, w=590, h=65)
+               ========================================================= */
+            HWND hGrpUrl = CreateWindowExW(0, L"BUTTON", L" Bağlantı ",
+                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                20, 45, 590, 65, hWnd, (HMENU)IDC_GRP_URL, hInst, NULL);
+            SendMessageW(hGrpUrl, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+
             g_hEditUrl = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                 WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                55, 65, 430, 28, hWnd, (HMENU)IDC_EDIT_URL, hInst, NULL);
-            SendMessageW(g_hEditUrl, WM_SETFONT, (WPARAM)g_fontBody, TRUE);
+                32, 68, 390, 25, hWnd, (HMENU)IDC_EDIT_URL, hInst, NULL);
+            SendMessageW(g_hEditUrl, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            /* 2. Paste Button */
             g_hBtnPaste = CreateWindowExW(0, L"BUTTON", L"Yapıştır",
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                492, 65, 75, 28, hWnd, (HMENU)IDC_BTN_PASTE, hInst, NULL);
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                430, 67, 80, 27, hWnd, (HMENU)IDC_BTN_PASTE, hInst, NULL);
+            SendMessageW(g_hBtnPaste, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            /* 3. Fetch Button */
             g_hBtnFetch = CreateWindowExW(0, L"BUTTON", L"Bilgi Getir",
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                572, 65, 80, 28, hWnd, (HMENU)IDC_BTN_FETCH, hInst, NULL);
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                516, 67, 82, 27, hWnd, (HMENU)IDC_BTN_FETCH, hInst, NULL);
+            SendMessageW(g_hBtnFetch, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            /* 4. Media Metadata */
-            g_hStaticTitle = CreateWindowExW(0, L"STATIC", L"1. Video bağlantısını yapıştırın ve 'Bilgi Getir'e basın.",
-                WS_CHILD | WS_VISIBLE | SS_LEFT,
-                55, 115, 600, 22, hWnd, (HMENU)IDC_STATIC_TITLE, hInst, NULL);
-            SendMessageW(g_hStaticTitle, WM_SETFONT, (WPARAM)g_fontSection, TRUE);
+            /* =========================================================
+               GROUP 2: MEDYA VE FORMAT AYARLARI (x=20, y=118, w=590, h=195)
+               ========================================================= */
+            HWND hGrpMedia = CreateWindowExW(0, L"BUTTON", L" Medya ve Format Seçimi ",
+                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                20, 118, 590, 195, hWnd, (HMENU)IDC_GRP_MEDIA, hInst, NULL);
+            SendMessageW(hGrpMedia, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+
+            g_hStaticTitle = CreateWindowExW(0, L"STATIC", L"Bağlantıyı girin ve 'Bilgi Getir' butonuna basın.",
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS,
+                32, 142, 565, 20, hWnd, (HMENU)IDC_STATIC_TITLE, hInst, NULL);
+            SendMessageW(g_hStaticTitle, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
 
             g_hStaticMeta = CreateWindowExW(0, L"STATIC", L"Desteklenenler: YouTube, TikTok, Instagram, X (Twitter), Web",
                 WS_CHILD | WS_VISIBLE | SS_LEFT,
-                55, 140, 600, 20, hWnd, (HMENU)IDC_STATIC_META, hInst, NULL);
+                32, 164, 565, 18, hWnd, (HMENU)IDC_STATIC_META, hInst, NULL);
             SendMessageW(g_hStaticMeta, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
-            /* 5. Mode Radios */
             g_hRadioVideo = CreateWindowExW(0, L"BUTTON", L"Video Olarak İndir",
                 WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
-                55, 175, 150, 24, hWnd, (HMENU)IDC_RADIO_VIDEO, hInst, NULL);
-            SendMessageW(g_hRadioVideo, WM_SETFONT, (WPARAM)g_fontBodyBold, TRUE);
+                32, 192, 150, 22, hWnd, (HMENU)IDC_RADIO_VIDEO, hInst, NULL);
+            SendMessageW(g_hRadioVideo, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
             SendMessageW(g_hRadioVideo, BM_SETCHECK, BST_CHECKED, 0);
 
             g_hRadioAudio = CreateWindowExW(0, L"BUTTON", L"Yalnızca Ses (Müzik)",
                 WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-                220, 175, 160, 24, hWnd, (HMENU)IDC_RADIO_AUDIO, hInst, NULL);
-            SendMessageW(g_hRadioAudio, WM_SETFONT, (WPARAM)g_fontBodyBold, TRUE);
+                195, 192, 160, 22, hWnd, (HMENU)IDC_RADIO_AUDIO, hInst, NULL);
+            SendMessageW(g_hRadioAudio, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            /* 6. Video Options */
             g_hComboRes = CreateWindowExW(0, L"COMBOBOX", NULL,
                 WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                55, 215, 180, 200, hWnd, (HMENU)IDC_COMBO_RES, hInst, NULL);
-            SendMessageW(g_hComboRes, WM_SETFONT, (WPARAM)g_fontBody, TRUE);
-            SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)L"En Yüksek Kalite (Oto)");
+                32, 222, 200, 200, hWnd, (HMENU)IDC_COMBO_RES, hInst, NULL);
+            SendMessageW(g_hComboRes, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+            SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)L"En Yüksek Kalite (Varsayılan)");
             SendMessageW(g_hComboRes, CB_SETCURSEL, 0, 0);
 
             g_hChkForceMp4 = CreateWindowExW(0, L"BUTTON", L"MP4 Olarak Zorla",
                 WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                255, 217, 160, 22, hWnd, (HMENU)IDC_CHK_FORCE_MP4, hInst, NULL);
-            SendMessageW(g_hChkForceMp4, WM_SETFONT, (WPARAM)g_fontBody, TRUE);
+                245, 223, 160, 22, hWnd, (HMENU)IDC_CHK_FORCE_MP4, hInst, NULL);
+            SendMessageW(g_hChkForceMp4, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            /* 7. Audio Options (Hidden initially) */
             g_hComboAudio = CreateWindowExW(0, L"COMBOBOX", NULL,
                 WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL,
-                55, 215, 180, 200, hWnd, (HMENU)IDC_COMBO_AUDIO, hInst, NULL);
-            SendMessageW(g_hComboAudio, WM_SETFONT, (WPARAM)g_fontBody, TRUE);
+                32, 222, 200, 200, hWnd, (HMENU)IDC_COMBO_AUDIO, hInst, NULL);
+            SendMessageW(g_hComboAudio, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
             SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"Opus (Ham En Yüksek Kalite)");
             SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"AAC (M4A - Apple Uyumlu)");
             SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"MP3 (Evrensel Format)");
             SendMessageW(g_hComboAudio, CB_SETCURSEL, 0, 0);
 
-            /* 8. Codec Reason note */
             g_hStaticReason = CreateWindowExW(0, L"STATIC", L"",
                 WS_CHILD | WS_VISIBLE | SS_LEFT,
-                55, 260, 600, 38, hWnd, (HMENU)IDC_STATIC_REASON, hInst, NULL);
+                32, 256, 565, 45, hWnd, (HMENU)IDC_STATIC_REASON, hInst, NULL);
             SendMessageW(g_hStaticReason, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
-            /* 9. Progress Bar */
+            /* =========================================================
+               GROUP 3: İNDİRME DURUMU & EYLEMLER (x=20, y=320, w=590, h=135)
+               ========================================================= */
+            HWND hGrpDownload = CreateWindowExW(0, L"BUTTON", L" İndirme Durumu ",
+                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+                20, 320, 590, 135, hWnd, (HMENU)IDC_GRP_DOWNLOAD, hInst, NULL);
+            SendMessageW(hGrpDownload, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+
             g_hProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, NULL,
                 WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-                55, 320, 595, 20, hWnd, (HMENU)IDC_PROGRESS, hInst, NULL);
+                32, 342, 565, 20, hWnd, (HMENU)IDC_PROGRESS, hInst, NULL);
 
-            /* 10. Status Text */
             g_hStaticStatus = CreateWindowExW(0, L"STATIC", L"Hazır",
                 WS_CHILD | WS_VISIBLE | SS_LEFT,
-                55, 350, 595, 22, hWnd, (HMENU)IDC_STATIC_STATUS, hInst, NULL);
-            SendMessageW(g_hStaticStatus, WM_SETFONT, (WPARAM)g_fontBody, TRUE);
+                32, 368, 565, 20, hWnd, (HMENU)IDC_STATIC_STATUS, hInst, NULL);
+            SendMessageW(g_hStaticStatus, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            /* 11. Buttons */
             g_hBtnDownload = CreateWindowExW(0, L"BUTTON", L"İNDİR",
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                55, 395, 120, 36, hWnd, (HMENU)IDC_BTN_DOWNLOAD, hInst, NULL);
+                WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                32, 400, 120, 36, hWnd, (HMENU)IDC_BTN_DOWNLOAD, hInst, NULL);
+            SendMessageW(g_hBtnDownload, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
 
-            g_hBtnCancel = CreateWindowExW(0, L"BUTTON", L"İPTAL",
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | WS_DISABLED,
-                185, 395, 90, 36, hWnd, (HMENU)IDC_BTN_CANCEL, hInst, NULL);
+            g_hBtnCancel = CreateWindowExW(0, L"BUTTON", L"İptal",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_DISABLED,
+                160, 400, 90, 36, hWnd, (HMENU)IDC_BTN_CANCEL, hInst, NULL);
+            SendMessageW(g_hBtnCancel, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             g_hBtnOpenFolder = CreateWindowExW(0, L"BUTTON", L"Klasörü Aç",
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                460, 395, 100, 36, hWnd, (HMENU)IDC_BTN_OPEN_FOLDER, hInst, NULL);
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                400, 400, 95, 36, hWnd, (HMENU)IDC_BTN_OPEN_FOLDER, hInst, NULL);
+            SendMessageW(g_hBtnOpenFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             g_hBtnChooseFolder = CreateWindowExW(0, L"BUTTON", L"Klasör Seç",
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-                568, 395, 82, 36, hWnd, (HMENU)IDC_BTN_CHOOSE_FOLDER, hInst, NULL);
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                502, 400, 95, 36, hWnd, (HMENU)IDC_BTN_CHOOSE_FOLDER, hInst, NULL);
+            SendMessageW(g_hBtnChooseFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             init_tray(hWnd, hInst);
             return 0;
-        }
-
-        case WM_DRAWITEM: {
-            LPDRAWITEMSTRUCT pdis = (LPDRAWITEMSTRUCT)lParam;
-            if (pdis->CtlID == IDC_BTN_DOWNLOAD) {
-                draw_custom_button(pdis, COLOR_SAGE, COLOR_WHITE, L"İNDİR");
-                return TRUE;
-            } else if (pdis->CtlID == IDC_BTN_CANCEL) {
-                draw_custom_button(pdis, COLOR_CORAL, COLOR_WHITE, L"İPTAL");
-                return TRUE;
-            } else if (pdis->CtlID == IDC_BTN_PASTE) {
-                draw_custom_button(pdis, COLOR_HILITE, COLOR_INK, L"Yapıştır");
-                return TRUE;
-            } else if (pdis->CtlID == IDC_BTN_FETCH) {
-                draw_custom_button(pdis, COLOR_PAPER_LINE, COLOR_INK, L"Bilgi Getir");
-                return TRUE;
-            } else if (pdis->CtlID == IDC_BTN_OPEN_FOLDER) {
-                draw_custom_button(pdis, COLOR_PAPER_LINE, COLOR_INK, L"Klasörü Aç");
-                return TRUE;
-            } else if (pdis->CtlID == IDC_BTN_CHOOSE_FOLDER) {
-                draw_custom_button(pdis, COLOR_PAPER_LINE, COLOR_INK, L"Klasör Seç");
-                return TRUE;
-            }
-            break;
         }
 
         case WM_DROPFILES: {
             HDROP hDrop = (HDROP)wParam;
             wchar_t dropped_file[MAX_PATH];
             if (DragQueryFileW(hDrop, 0, dropped_file, MAX_PATH) > 0) {
-                /* Check if it's a text file or URL */
                 FILE *f = _wfopen(dropped_file, L"r, ccs=UTF-8");
                 if (f) {
                     wchar_t line[1024];
@@ -492,16 +432,16 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_CTLCOLORSTATIC: {
             HDC hdc = (HDC)wParam;
-            SetBkColor(hdc, COLOR_PAPER);
-            SetTextColor(hdc, COLOR_INK);
-            return (LRESULT)g_brPaper;
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+            return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
         }
 
         case WM_CTLCOLOREDIT: {
             HDC hdc = (HDC)wParam;
-            SetBkColor(hdc, COLOR_WHITE);
-            SetTextColor(hdc, COLOR_INK);
-            return (LRESULT)g_brWhite;
+            SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+            return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
         }
 
         case WM_PAINT: {
@@ -510,46 +450,27 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             RECT rc;
             GetClientRect(hWnd, &rc);
 
-            /* Fill background with warm paper */
-            FillRect(hdc, &rc, g_brPaper);
+            /* Clean native dialog background */
+            FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
 
-            /* Red margin line (stationery notebook spine) */
-            HPEN red_pen = CreatePen(PS_SOLID, 2, COLOR_MARGIN_RED);
-            HPEN old_pen = (HPEN)SelectObject(hdc, red_pen);
-            MoveToEx(hdc, 40, 0, NULL);
-            LineTo(hdc, 40, rc.bottom);
-
-            /* Subtle notebook paper lines */
-            HPEN line_pen = CreatePen(PS_SOLID, 1, COLOR_PAPER_LINE);
-            SelectObject(hdc, line_pen);
-            for (int y = 50; y < rc.bottom; y += 50) {
-                MoveToEx(hdc, 40, y, NULL);
-                LineTo(hdc, rc.right, y);
-            }
-
-            /* Header Title */
+            /* Clean plain title header */
             SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, COLOR_INK);
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
             SelectObject(hdc, g_fontTitle);
-            TextOutW(hdc, 55, 12, L"ff-dlp-viewer", 13);
-
-            /* Platform Badge */
-            SelectObject(hdc, g_fontBodyBold);
-            const wchar_t *badge = g_has_meta ? g_current_meta.platform.badge_label : L"HAFIZASIZ";
-            RECT badge_rc = { 210, 15, 300, 37 };
-            HBRUSH badge_br = CreateSolidBrush(COLOR_HILITE);
-            FillRect(hdc, &badge_rc, badge_br);
-            DeleteObject(badge_br);
-            DrawTextW(hdc, badge, -1, &badge_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            TextOutW(hdc, 22, 14, L"ff-dlp-viewer", 13);
 
             /* Subtitle */
             SelectObject(hdc, g_fontSmall);
-            SetTextColor(hdc, COLOR_INK_SOFT);
-            TextOutW(hdc, 315, 18, L"Hafif Medya İndirici (Native < 1 MB)", 36);
+            SetTextColor(hdc, RGB(110, 110, 110));
+            TextOutW(hdc, 150, 18, L"Hafif Medya İndirici (Native < 1 MB)", 36);
 
-            SelectObject(hdc, old_pen);
-            DeleteObject(red_pen);
-            DeleteObject(line_pen);
+            /* Platform Badge */
+            SelectObject(hdc, g_fontBold);
+            const wchar_t *badge = g_has_meta ? g_current_meta.platform.badge_label : L"WEB";
+            RECT badge_rc = { 530, 14, 610, 36 };
+            DrawEdge(hdc, &badge_rc, EDGE_ETCHED, BF_RECT);
+            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+            DrawTextW(hdc, badge, -1, &badge_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
             EndPaint(hWnd, &ps);
             return 0;
@@ -611,7 +532,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 SetWindowTextW(g_hStaticTitle, g_current_meta.title);
 
                 wchar_t meta_info[256];
-                _snwprintf(meta_info, 256, L"Süre: %ls | Platform: %ls | Akış Sayısı: %d",
+                _snwprintf(meta_info, 256, L"Süre: %ls | Platform: %ls | Mevcut Akış: %d adet",
                     g_current_meta.duration_str,
                     g_current_meta.platform.display_name,
                     g_current_meta.format_count);
@@ -661,7 +582,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 format_bytes_str(msg->total, tot_str, 64);
 
                 wchar_t status_line[256];
-                _snwprintf(status_line, 256, L"İndiriliyor: %%.1f | Hız: %ls/s | Kalan: %02d:%02d | Boyut: %ls / %ls",
+                _snwprintf(status_line, 256, L"İndiriliyor: %%.1f | Hız: %ls/s | Kalan: %02d:%02d | %ls / %ls",
                     msg->percent, speed_str, msg->eta / 60, msg->eta % 60, dl_str, tot_str);
                 SetWindowTextW(g_hStaticStatus, status_line);
             } else if (wcscmp(msg->status, L"processing") == 0) {
@@ -669,7 +590,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 SetWindowTextW(g_hStaticStatus, L"Akışlar birleştiriliyor ve konteyner tamamlanıyor...");
             } else if (wcscmp(msg->status, L"finished") == 0) {
                 SendMessageW(g_hProgressBar, PBM_SETPOS, 100, 0);
-                SetWindowTextW(g_hStaticStatus, L"[BAŞARILI] İndirme tamamlandı! Dosya klasörde hazır.");
+                SetWindowTextW(g_hStaticStatus, L"[Tamamlandı] Dosya başarıyla kaydedildi.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
             } else if (wcscmp(msg->status, L"cancelled") == 0) {
@@ -729,13 +650,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_DESTROY: {
             remove_tray();
             if (g_fontTitle) DeleteObject(g_fontTitle);
-            if (g_fontSection) DeleteObject(g_fontSection);
-            if (g_fontBody) DeleteObject(g_fontBody);
-            if (g_fontBodyBold) DeleteObject(g_fontBodyBold);
+            if (g_fontBold) DeleteObject(g_fontBold);
+            if (g_fontNormal) DeleteObject(g_fontNormal);
             if (g_fontSmall) DeleteObject(g_fontSmall);
-            if (g_brPaper) DeleteObject(g_brPaper);
-            if (g_brWhite) DeleteObject(g_brWhite);
-            if (g_brHilite) DeleteObject(g_brHilite);
             PostQuitMessage(0);
             return 0;
         }
@@ -758,7 +675,7 @@ int ui_run(HINSTANCE hInstance, int nCmdShow)
     wc.hInstance = hInstance;
     wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
-    wc.hbrBackground = NULL;
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"FfDlpViewerLightWindow";
 
     RegisterClassExW(&wc);
@@ -768,7 +685,7 @@ int ui_run(HINSTANCE hInstance, int nCmdShow)
         L"FfDlpViewerLightWindow",
         L"ff-dlp-viewer",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 690, 490,
+        CW_USEDEFAULT, CW_USEDEFAULT, 646, 505,
         NULL, NULL, hInstance, NULL
     );
 
