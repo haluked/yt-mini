@@ -1,0 +1,33 @@
+#include <windows.h>
+
+1 24 "res/app.manifest"
+101 ICON "res/app.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     2,0,0,0
+PRODUCTVERSION  2,0,0,0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041F04B0" // Turkish (041F), Unicode (04B0)
+        BEGIN
+            VALUE "CompanyName",      "Haluk"
+            VALUE "FileDescription",  "Hafif Medya Indirici (Win32 Native)"
+            VALUE "FileVersion",      "2.0.0.0"
+            VALUE "InternalName",     "ff-dlp-viewer-light"
+            VALUE "LegalCopyright",   "MIT License"
+            VALUE "OriginalFilename", "ff-dlp-viewer.exe"
+            VALUE "ProductName",      "ff-dlp-viewer"
+            VALUE "ProductVersion",   "2.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x41f, 1200
+    END
+END

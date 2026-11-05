@@ -27,6 +27,10 @@ bin/ffmpeg.exe
 bin/ffprobe.exe
 *.log
 
+# C/C++ Object Files & Executables
+*.o
+tests/*.exe
+
 # Workspace & internal notes
 TeamMembers.xlsx
 .impeccable/
