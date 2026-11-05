@@ -68,8 +68,11 @@ static int g_in_tray = 0;
 static wchar_t g_download_dir[MAX_PATH];
 static MediaMetadata g_current_meta;
 static int g_has_meta = 0;
-static SelectionResult g_current_selection;
+static int g_is_fetching = 0;
+static int g_is_downloading = 0;
 static int g_auto_download_after_fetch = 0;
+static wchar_t g_last_fetched_url[1024] = L"";
+static SelectionResult g_current_selection;
 
 static WNDPROC g_oldEditProc = NULL;
 
@@ -206,14 +209,34 @@ static void trigger_fetch(void)
         return;
     }
 
+    /* Zaten aynı URL çekiliyorsa mükerrer süreç başlatma */
+    if (g_is_fetching) {
+        return;
+    }
+
+    /* Zaten bu URL çekilmiş ve hazırsa tekrar gereksiz ağ trafiği yapma */
+    if (g_has_meta && wcscmp(url, g_last_fetched_url) == 0) {
+        return;
+    }
+
+    g_is_fetching = 1;
+    g_has_meta = 0;
+    wcsncpy(g_last_fetched_url, url, 1023);
+
     SetWindowTextW(g_hBtnFetch, L"Çekiliyor...");
     EnableWindow(g_hBtnFetch, FALSE);
+    EnableWindow(g_hBtnCancel, TRUE);
     SetWindowTextW(g_hStaticTitle, L"Medya bilgileri sorgulanıyor, lütfen bekleyin...");
     SetWindowTextW(g_hStaticMeta, L"");
     SetWindowTextW(g_hStaticReason, L"");
     SetWindowTextW(g_hStaticStatus, L"Bilgi getiriliyor...");
 
-    engine_fetch_info_async(url, on_fetch_callback, NULL);
+    if (!engine_fetch_info_async(url, on_fetch_callback, NULL)) {
+        g_is_fetching = 0;
+        EnableWindow(g_hBtnFetch, TRUE);
+        SetWindowTextW(g_hBtnFetch, L"Bilgi Getir");
+        SetWindowTextW(g_hStaticStatus, L"Motor şu an meşgul, lütfen bekleyin.");
+    }
 }
 
 static void update_format_selection(void)
@@ -263,27 +286,40 @@ static void trigger_download(void)
         return;
     }
 
-    if (!g_has_meta) {
-        /* Otomatik olarak önce bilgileri çek, hemen ardından indirmeyi başlat */
-        g_auto_download_after_fetch = 1;
-        SetWindowTextW(g_hBtnFetch, L"Çekiliyor...");
-        EnableWindow(g_hBtnFetch, FALSE);
-        EnableWindow(g_hBtnDownload, FALSE);
-        EnableWindow(g_hBtnCancel, TRUE);
-        SetWindowTextW(g_hStaticTitle, L"Medya bilgisi alınıyor ve otomatik olarak indirilecek...");
-        SetWindowTextW(g_hStaticMeta, L"");
-        SetWindowTextW(g_hStaticReason, L"");
-        SetWindowTextW(g_hStaticStatus, L"Format bilgisi sorgulanıyor...");
-        engine_fetch_info_async(url, on_fetch_callback, NULL);
+    /* Zaten indirme sürüyorsa tekrar başlatma */
+    if (g_is_downloading) {
         return;
     }
 
+    /* Durum 1: Bilgi çekme işlemi zaten devam ediyorsa; indirme emrini kuyruğa al */
+    if (g_is_fetching) {
+        g_auto_download_after_fetch = 1;
+        EnableWindow(g_hBtnDownload, FALSE);
+        EnableWindow(g_hBtnCancel, TRUE);
+        SetWindowTextW(g_hStaticStatus, L"Bilgiler alınıyor, biter bitmez indirme otomatik başlayacak...");
+        return;
+    }
+
+    /* Durum 2: Henüz bilgi çekilmemişse; tek tıkla otomatik çekip indireceğiz */
+    if (!g_has_meta || wcscmp(url, g_last_fetched_url) != 0) {
+        g_auto_download_after_fetch = 1;
+        trigger_fetch();
+        return;
+    }
+
+    /* Durum 3: Bilgiler hazır, doğrudan indirmeyi başlat */
+    g_is_downloading = 1;
     EnableWindow(g_hBtnDownload, FALSE);
     EnableWindow(g_hBtnCancel, TRUE);
     SendMessageW(g_hProgressBar, PBM_SETPOS, 0, 0);
     SetWindowTextW(g_hStaticStatus, L"İndirme başlatılıyor...");
 
-    engine_download_async(url, &g_current_selection, g_download_dir, on_download_tick_callback, NULL);
+    if (!engine_download_async(url, &g_current_selection, g_download_dir, on_download_tick_callback, NULL)) {
+        g_is_downloading = 0;
+        EnableWindow(g_hBtnDownload, TRUE);
+        EnableWindow(g_hBtnCancel, FALSE);
+        SetWindowTextW(g_hStaticStatus, L"Motor şu an meşgul, lütfen bekleyin.");
+    }
 }
 
 static void init_tray(HWND hWnd, HINSTANCE hInstance)
@@ -558,6 +594,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 trigger_download();
             } else if (wmId == IDC_BTN_CANCEL) {
                 engine_cancel();
+                g_auto_download_after_fetch = 0;
                 SetWindowTextW(g_hStaticStatus, L"İptal ediliyor...");
             } else if (wmId == IDC_BTN_OPEN_FOLDER) {
                 ShellExecuteW(NULL, L"open", g_download_dir, NULL, NULL, SW_SHOWNORMAL);
@@ -583,6 +620,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             FetchResultMsg *msg = (FetchResultMsg*)lParam;
             if (!msg) break;
 
+            g_is_fetching = 0;
             EnableWindow(g_hBtnFetch, TRUE);
             SetWindowTextW(g_hBtnFetch, L"Bilgi Getir");
 
@@ -617,10 +655,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 update_format_selection();
                 InvalidateRect(hWnd, NULL, TRUE);
 
-                /* Auto-download if triggered from the Download button */
+                /* Eğer kullanıcı indir butonuna basmış ve bilgi bekleniyorsa, şimdi indir */
                 if (g_auto_download_after_fetch) {
                     g_auto_download_after_fetch = 0;
                     trigger_download();
+                } else {
+                    SetWindowTextW(g_hStaticStatus, L"Medya hazır. İndirmek için 'İNDİR' butonuna basın.");
+                    EnableWindow(g_hBtnDownload, TRUE);
+                    EnableWindow(g_hBtnCancel, FALSE);
                 }
             } else {
                 g_has_meta = 0;
@@ -661,15 +703,18 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 SendMessageW(g_hProgressBar, PBM_SETPOS, 100, 0);
                 SetWindowTextW(g_hStaticStatus, L"Akışlar birleştiriliyor ve konteyner tamamlanıyor...");
             } else if (wcscmp(msg->status, L"finished") == 0) {
+                g_is_downloading = 0;
                 SendMessageW(g_hProgressBar, PBM_SETPOS, 100, 0);
                 SetWindowTextW(g_hStaticStatus, L"[Tamamlandı] Dosya başarıyla kaydedildi.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
             } else if (wcscmp(msg->status, L"cancelled") == 0) {
+                g_is_downloading = 0;
                 SetWindowTextW(g_hStaticStatus, L"İndirme iptal edildi.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
             } else if (wcscmp(msg->status, L"error") == 0) {
+                g_is_downloading = 0;
                 SetWindowTextW(g_hStaticStatus, msg->error_msg[0] ? msg->error_msg : L"İndirme hatası.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);

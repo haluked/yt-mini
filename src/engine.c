@@ -10,11 +10,12 @@
 static HANDLE g_current_process = NULL;
 static volatile int g_cancel_requested = 0;
 static CRITICAL_SECTION g_engine_cs;
-static int g_is_busy = 0;
+static EngineState g_engine_state = ENGINE_STATE_IDLE;
 
 int engine_init(void)
 {
     InitializeCriticalSection(&g_engine_cs);
+    g_engine_state = ENGINE_STATE_IDLE;
     return 1;
 }
 
@@ -24,9 +25,17 @@ void engine_cleanup(void)
     DeleteCriticalSection(&g_engine_cs);
 }
 
+EngineState engine_get_state(void)
+{
+    EnterCriticalSection(&g_engine_cs);
+    EngineState s = g_engine_state;
+    LeaveCriticalSection(&g_engine_cs);
+    return s;
+}
+
 int engine_is_busy(void)
 {
-    return g_is_busy;
+    return engine_get_state() != ENGINE_STATE_IDLE;
 }
 
 void engine_cancel(void)
@@ -226,6 +235,10 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     wchar_t ytdlp_path[MAX_PATH];
 
     if (!engine_find_ytdlp(ytdlp_path, MAX_PATH)) {
+        EnterCriticalSection(&g_engine_cs);
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+
         if (p->callback) {
             p->callback(0, NULL, L"yt-dlp.exe bulunamadı! Lütfen bin/ klasörüne yerleştirin.", p->user_data);
         }
@@ -234,11 +247,15 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     }
 
     wchar_t cmd_line[2048];
-    _snwprintf(cmd_line, 2048, L"\"%ls\" --dump-json --no-playlist --no-warnings \"%ls\"", ytdlp_path, p->url);
+    _snwprintf(cmd_line, 2048, L"\"%ls\" --no-interactive --dump-json --no-playlist --no-warnings \"%ls\"", ytdlp_path, p->url);
 
     HANDLE hReadPipe, hWritePipe;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
     if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+        EnterCriticalSection(&g_engine_cs);
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+
         if (p->callback) p->callback(0, NULL, L"Boru hattı oluşturulamadı.", p->user_data);
         free(p);
         return 0;
@@ -248,6 +265,7 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     STARTUPINFOW si;
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
+    si.hStdInput = INVALID_HANDLE_VALUE;
     si.hStdOutput = hWritePipe;
     si.hStdError = hWritePipe;
     si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
@@ -258,14 +276,12 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
 
     EnterCriticalSection(&g_engine_cs);
     g_cancel_requested = 0;
-    g_is_busy = 1;
-
     BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
     if (!ok) {
+        g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
         CloseHandle(hWritePipe);
         CloseHandle(hReadPipe);
-        g_is_busy = 0;
         if (p->callback) p->callback(0, NULL, L"yt-dlp süreci başlatılamadı.", p->user_data);
         free(p);
         return 0;
@@ -274,6 +290,7 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     g_current_process = pi.hProcess;
     LeaveCriticalSection(&g_engine_cs);
 
+    /* Close write end immediately so ReadFile sees EOF when child terminates */
     CloseHandle(hWritePipe);
 
     /* Read JSON stdout */
@@ -294,7 +311,7 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     json_buf[buf_len] = '\0';
 
     CloseHandle(hReadPipe);
-    WaitForSingleObject(pi.hProcess, INFINITE);
+    WaitForSingleObject(pi.hProcess, 30000);
 
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
@@ -302,7 +319,7 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     EnterCriticalSection(&g_engine_cs);
     HANDLE hProc = g_current_process;
     g_current_process = NULL;
-    g_is_busy = 0;
+    g_engine_state = ENGINE_STATE_IDLE;
     int was_cancelled = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
 
@@ -332,12 +349,20 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     return 0;
 }
 
-HANDLE engine_fetch_info_async(
+int engine_fetch_info_async(
     const wchar_t *url,
     EngineFetchCallback callback,
     void *user_data
 )
 {
+    EnterCriticalSection(&g_engine_cs);
+    if (g_engine_state != ENGINE_STATE_IDLE) {
+        LeaveCriticalSection(&g_engine_cs);
+        return 0; /* Busy with another task */
+    }
+    g_engine_state = ENGINE_STATE_FETCHING;
+    LeaveCriticalSection(&g_engine_cs);
+
     FetchThreadParams *p = (FetchThreadParams*)malloc(sizeof(FetchThreadParams));
     wcsncpy(p->url, url, 1023);
     p->url[1023] = L'\0';
@@ -345,8 +370,16 @@ HANDLE engine_fetch_info_async(
     p->user_data = user_data;
 
     HANDLE hThread = CreateThread(NULL, 0, fetch_thread_proc, p, 0, NULL);
-    if (hThread) CloseHandle(hThread);
-    return NULL;
+    if (hThread) {
+        CloseHandle(hThread);
+        return 1;
+    }
+
+    EnterCriticalSection(&g_engine_cs);
+    g_engine_state = ENGINE_STATE_IDLE;
+    LeaveCriticalSection(&g_engine_cs);
+    free(p);
+    return 0;
 }
 
 typedef struct {
@@ -427,6 +460,10 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     int has_ffmpeg = engine_find_ffmpeg(ffmpeg_path, MAX_PATH);
 
     if (!engine_find_ytdlp(ytdlp_path, MAX_PATH)) {
+        EnterCriticalSection(&g_engine_cs);
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+
         if (p->callback) {
             p->callback(L"error", 0, 0, 0, 0, 0, L"", L"yt-dlp.exe bulunamadı!", p->user_data);
         }
@@ -459,7 +496,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
 
     wchar_t cmd_line[4096];
     _snwprintf(cmd_line, 4096,
-        L"\"%ls\" -f \"%ls\" %ls %ls %ls --newline --progress-template \"%%(progress._percent_str)s|%%(progress._speed_str)s|%%(progress._eta_str)s|%%(progress.downloaded_bytes)s|%%(progress.total_bytes)s\" --no-playlist \"%ls\"",
+        L"\"%ls\" --no-interactive -f \"%ls\" %ls %ls %ls --newline --progress-template \"%%(progress._percent_str)s|%%(progress._speed_str)s|%%(progress._eta_str)s|%%(progress.downloaded_bytes)s|%%(progress.total_bytes)s\" --no-playlist \"%ls\"",
         ytdlp_path,
         p->selection.format_id,
         extra_opts,
@@ -471,6 +508,10 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     HANDLE hReadPipe, hWritePipe;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
     if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+        EnterCriticalSection(&g_engine_cs);
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+
         if (p->callback) p->callback(L"error", 0, 0, 0, 0, 0, L"", L"Boru hattı oluşturulamadı.", p->user_data);
         free(p);
         return 0;
@@ -480,6 +521,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     STARTUPINFOW si;
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
+    si.hStdInput = INVALID_HANDLE_VALUE;
     si.hStdOutput = hWritePipe;
     si.hStdError = hWritePipe;
     si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
@@ -490,14 +532,12 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
 
     EnterCriticalSection(&g_engine_cs);
     g_cancel_requested = 0;
-    g_is_busy = 1;
-
     BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
     if (!ok) {
+        g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
         CloseHandle(hWritePipe);
         CloseHandle(hReadPipe);
-        g_is_busy = 0;
         if (p->callback) p->callback(L"error", 0, 0, 0, 0, 0, L"", L"İndirme süreci başlatılamadı.", p->user_data);
         free(p);
         return 0;
@@ -506,6 +546,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     g_current_process = pi.hProcess;
     LeaveCriticalSection(&g_engine_cs);
 
+    /* Close write end immediately so ReadFile sees EOF when process finishes */
     CloseHandle(hWritePipe);
 
     /* Read output line by line */
@@ -550,7 +591,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     EnterCriticalSection(&g_engine_cs);
     HANDLE hProc = g_current_process;
     g_current_process = NULL;
-    g_is_busy = 0;
+    g_engine_state = ENGINE_STATE_IDLE;
     int was_cancelled = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
 
@@ -571,7 +612,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     return 0;
 }
 
-HANDLE engine_download_async(
+int engine_download_async(
     const wchar_t *url,
     const SelectionResult *selection,
     const wchar_t *dest_dir,
@@ -579,6 +620,14 @@ HANDLE engine_download_async(
     void *user_data
 )
 {
+    EnterCriticalSection(&g_engine_cs);
+    if (g_engine_state != ENGINE_STATE_IDLE) {
+        LeaveCriticalSection(&g_engine_cs);
+        return 0; /* Busy with another task */
+    }
+    g_engine_state = ENGINE_STATE_DOWNLOADING;
+    LeaveCriticalSection(&g_engine_cs);
+
     DownloadThreadParams *p = (DownloadThreadParams*)malloc(sizeof(DownloadThreadParams));
     wcsncpy(p->url, url, 1023);
     p->url[1023] = L'\0';
@@ -589,6 +638,14 @@ HANDLE engine_download_async(
     p->user_data = user_data;
 
     HANDLE hThread = CreateThread(NULL, 0, download_thread_proc, p, 0, NULL);
-    if (hThread) CloseHandle(hThread);
-    return NULL;
+    if (hThread) {
+        CloseHandle(hThread);
+        return 1;
+    }
+
+    EnterCriticalSection(&g_engine_cs);
+    g_engine_state = ENGINE_STATE_IDLE;
+    LeaveCriticalSection(&g_engine_cs);
+    free(p);
+    return 0;
 }

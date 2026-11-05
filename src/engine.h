@@ -5,6 +5,12 @@
 #include "codec_selector.h"
 #include "detector.h"
 
+typedef enum {
+    ENGINE_STATE_IDLE = 0,
+    ENGINE_STATE_FETCHING,
+    ENGINE_STATE_DOWNLOADING
+} EngineState;
+
 typedef struct {
     wchar_t title[256];
     int duration;
@@ -42,13 +48,13 @@ void engine_cleanup(void);
 int engine_find_ytdlp(wchar_t *out_path, size_t max_len);
 int engine_find_ffmpeg(wchar_t *out_path, size_t max_len);
 
-HANDLE engine_fetch_info_async(
+int engine_fetch_info_async(
     const wchar_t *url,
     EngineFetchCallback callback,
     void *user_data
 );
 
-HANDLE engine_download_async(
+int engine_download_async(
     const wchar_t *url,
     const SelectionResult *selection,
     const wchar_t *dest_dir,
@@ -57,6 +63,7 @@ HANDLE engine_download_async(
 );
 
 void engine_cancel(void);
+EngineState engine_get_state(void);
 int engine_is_busy(void);
 
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len);
