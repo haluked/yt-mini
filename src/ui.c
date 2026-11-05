@@ -69,6 +69,9 @@ static wchar_t g_download_dir[MAX_PATH];
 static MediaMetadata g_current_meta;
 static int g_has_meta = 0;
 static SelectionResult g_current_selection;
+static int g_auto_download_after_fetch = 0;
+
+static WNDPROC g_oldEditProc = NULL;
 
 typedef struct {
     int success;
@@ -88,6 +91,8 @@ typedef struct {
 } DownloadTickMsg;
 
 static void update_format_selection(void);
+static void trigger_fetch(void);
+static void trigger_download(void);
 
 static void choose_folder_com(HWND hWnd)
 {
@@ -118,14 +123,21 @@ static void choose_folder_com(HWND hWnd)
 
 static void on_fetch_callback(int success, const MediaMetadata *meta, const wchar_t *err, void *user_data)
 {
-    FetchResultMsg *msg = (FetchResultMsg*)malloc(sizeof(FetchResultMsg));
+    FetchResultMsg *msg = (FetchResultMsg*)calloc(1, sizeof(FetchResultMsg));
+    if (!msg) return;
+
     msg->success = success;
     if (meta) msg->meta = *meta;
-    else memset(&msg->meta, 0, sizeof(MediaMetadata));
-    if (err) wcsncpy(msg->error_msg, err, 255);
-    else msg->error_msg[0] = L'\0';
+    if (err) {
+        wcsncpy(msg->error_msg, err, 255);
+        msg->error_msg[255] = L'\0';
+    }
 
-    PostMessageW(g_hWnd, WM_USER_FETCH_DONE, 0, (LPARAM)msg);
+    if (g_hWnd && IsWindow(g_hWnd)) {
+        PostMessageW(g_hWnd, WM_USER_FETCH_DONE, 0, (LPARAM)msg);
+    } else {
+        free(msg);
+    }
 }
 
 static void on_download_tick_callback(
@@ -140,18 +152,49 @@ static void on_download_tick_callback(
     void *user_data
 )
 {
-    DownloadTickMsg *msg = (DownloadTickMsg*)malloc(sizeof(DownloadTickMsg));
-    wcsncpy(msg->status, status ? status : L"", 31);
+    DownloadTickMsg *msg = (DownloadTickMsg*)calloc(1, sizeof(DownloadTickMsg));
+    if (!msg) return;
+
+    if (status) {
+        wcsncpy(msg->status, status, 31);
+        msg->status[31] = L'\0';
+    }
     msg->percent = percent;
     msg->speed = speed;
     msg->eta = eta;
     msg->downloaded = downloaded;
     msg->total = total;
-    wcsncpy(msg->filename, filename ? filename : L"", 127);
-    if (err) wcsncpy(msg->error_msg, err, 255);
-    else msg->error_msg[0] = L'\0';
+    if (filename) {
+        wcsncpy(msg->filename, filename, 127);
+        msg->filename[127] = L'\0';
+    }
+    if (err) {
+        wcsncpy(msg->error_msg, err, 255);
+        msg->error_msg[255] = L'\0';
+    }
 
-    PostMessageW(g_hWnd, WM_USER_DOWNLOAD_TICK, 0, (LPARAM)msg);
+    if (g_hWnd && IsWindow(g_hWnd)) {
+        PostMessageW(g_hWnd, WM_USER_DOWNLOAD_TICK, 0, (LPARAM)msg);
+    } else {
+        free(msg);
+    }
+}
+
+static LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_PASTE) {
+        LRESULT res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
+        wchar_t url[1024];
+        GetWindowTextW(hWnd, url, 1023);
+        if (is_valid_url(url)) {
+            trigger_fetch();
+        }
+        return res;
+    } else if (msg == WM_KEYDOWN && wParam == VK_RETURN) {
+        trigger_download();
+        return 0;
+    }
+    return CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
 }
 
 static void trigger_fetch(void)
@@ -168,6 +211,7 @@ static void trigger_fetch(void)
     SetWindowTextW(g_hStaticTitle, L"Medya bilgileri sorgulanıyor, lütfen bekleyin...");
     SetWindowTextW(g_hStaticMeta, L"");
     SetWindowTextW(g_hStaticReason, L"");
+    SetWindowTextW(g_hStaticStatus, L"Bilgi getiriliyor...");
 
     engine_fetch_info_async(url, on_fetch_callback, NULL);
 }
@@ -212,13 +256,27 @@ static void update_format_selection(void)
 
 static void trigger_download(void)
 {
-    if (!g_has_meta) {
-        MessageBoxW(g_hWnd, L"Lütfen önce bir video bağlantısı getirip seçin.", L"Uyarı", MB_OK | MB_ICONINFORMATION);
+    wchar_t url[1024];
+    GetWindowTextW(g_hEditUrl, url, 1023);
+    if (!is_valid_url(url)) {
+        MessageBoxW(g_hWnd, L"Lütfen geçerli bir video veya ses bağlantısı girin.", L"Geçersiz Bağlantı", MB_OK | MB_ICONWARNING);
         return;
     }
 
-    wchar_t url[1024];
-    GetWindowTextW(g_hEditUrl, url, 1023);
+    if (!g_has_meta) {
+        /* Otomatik olarak önce bilgileri çek, hemen ardından indirmeyi başlat */
+        g_auto_download_after_fetch = 1;
+        SetWindowTextW(g_hBtnFetch, L"Çekiliyor...");
+        EnableWindow(g_hBtnFetch, FALSE);
+        EnableWindow(g_hBtnDownload, FALSE);
+        EnableWindow(g_hBtnCancel, TRUE);
+        SetWindowTextW(g_hStaticTitle, L"Medya bilgisi alınıyor ve otomatik olarak indirilecek...");
+        SetWindowTextW(g_hStaticMeta, L"");
+        SetWindowTextW(g_hStaticReason, L"");
+        SetWindowTextW(g_hStaticStatus, L"Format bilgisi sorgulanıyor...");
+        engine_fetch_info_async(url, on_fetch_callback, NULL);
+        return;
+    }
 
     EnableWindow(g_hBtnDownload, FALSE);
     EnableWindow(g_hBtnCancel, TRUE);
@@ -299,6 +357,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 32, 68, 390, 25, hWnd, (HMENU)IDC_EDIT_URL, hInst, NULL);
             SendMessageW(g_hEditUrl, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
+            /* Subclass edit box for auto-fetch on paste and Enter */
+            g_oldEditProc = (WNDPROC)SetWindowLongPtrW(g_hEditUrl, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
+
             g_hBtnPaste = CreateWindowExW(0, L"BUTTON", L"Yapıştır",
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                 430, 67, 80, 27, hWnd, (HMENU)IDC_BTN_PASTE, hInst, NULL);
@@ -317,7 +378,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 20, 118, 590, 195, hWnd, (HMENU)IDC_GRP_MEDIA, hInst, NULL);
             SendMessageW(hGrpMedia, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hStaticTitle = CreateWindowExW(0, L"STATIC", L"Bağlantıyı girin ve 'Bilgi Getir' butonuna basın.",
+            g_hStaticTitle = CreateWindowExW(0, L"STATIC", L"Bağlantıyı girin veya yapıştırın.",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS,
                 32, 142, 565, 20, hWnd, (HMENU)IDC_STATIC_TITLE, hInst, NULL);
             SendMessageW(g_hStaticTitle, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
@@ -418,12 +479,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                         nl = wcschr(line, L'\r');
                         if (nl) *nl = L'\0';
                         SetWindowTextW(g_hEditUrl, line);
-                        trigger_fetch();
+                        if (is_valid_url(line)) trigger_fetch();
                     }
                     fclose(f);
                 } else {
                     SetWindowTextW(g_hEditUrl, dropped_file);
-                    trigger_fetch();
+                    if (is_valid_url(dropped_file)) trigger_fetch();
                 }
             }
             DragFinish(hDrop);
@@ -450,21 +511,17 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             RECT rc;
             GetClientRect(hWnd, &rc);
 
-            /* Clean native dialog background */
             FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
 
-            /* Clean plain title header */
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
             SelectObject(hdc, g_fontTitle);
             TextOutW(hdc, 22, 14, L"ff-dlp-viewer", 13);
 
-            /* Subtitle */
             SelectObject(hdc, g_fontSmall);
             SetTextColor(hdc, RGB(110, 110, 110));
             TextOutW(hdc, 150, 18, L"Hafif Medya İndirici (Native < 1 MB)", 36);
 
-            /* Platform Badge */
             SelectObject(hdc, g_fontBold);
             const wchar_t *badge = g_has_meta ? g_current_meta.platform.badge_label : L"WEB";
             RECT badge_rc = { 530, 14, 610, 36 };
@@ -488,7 +545,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                         if (pText) {
                             SetWindowTextW(g_hEditUrl, pText);
                             GlobalUnlock(hData);
-                            trigger_fetch();
+                            if (is_valid_url(pText)) {
+                                trigger_fetch();
+                            }
                         }
                     }
                     CloseClipboard();
@@ -522,6 +581,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_USER_FETCH_DONE: {
             FetchResultMsg *msg = (FetchResultMsg*)lParam;
+            if (!msg) break;
+
             EnableWindow(g_hBtnFetch, TRUE);
             SetWindowTextW(g_hBtnFetch, L"Bilgi Getir");
 
@@ -555,11 +616,21 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
                 update_format_selection();
                 InvalidateRect(hWnd, NULL, TRUE);
+
+                /* Auto-download if triggered from the Download button */
+                if (g_auto_download_after_fetch) {
+                    g_auto_download_after_fetch = 0;
+                    trigger_download();
+                }
             } else {
                 g_has_meta = 0;
+                g_auto_download_after_fetch = 0;
+                EnableWindow(g_hBtnDownload, TRUE);
+                EnableWindow(g_hBtnCancel, FALSE);
                 SetWindowTextW(g_hStaticTitle, L"Bilgi alınamadı.");
                 SetWindowTextW(g_hStaticMeta, msg->error_msg);
-                MessageBoxW(hWnd, msg->error_msg, L"Hata", MB_OK | MB_ICONERROR);
+                SetWindowTextW(g_hStaticStatus, L"Hata oluştu.");
+                MessageBoxW(hWnd, msg->error_msg[0] ? msg->error_msg : L"Video bilgisi alınamadı.", L"Hata", MB_OK | MB_ICONERROR);
             }
 
             free(msg);
@@ -568,6 +639,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_USER_DOWNLOAD_TICK: {
             DownloadTickMsg *msg = (DownloadTickMsg*)lParam;
+            if (!msg) break;
 
             if (wcscmp(msg->status, L"downloading") == 0) {
                 SendMessageW(g_hProgressBar, PBM_SETPOS, (WPARAM)(int)msg->percent, 0);
@@ -582,7 +654,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 format_bytes_str(msg->total, tot_str, 64);
 
                 wchar_t status_line[256];
-                _snwprintf(status_line, 256, L"İndiriliyor: %%.1f | Hız: %ls/s | Kalan: %02d:%02d | %ls / %ls",
+                _snwprintf(status_line, 256, L"İndiriliyor: %.1f%% | Hız: %ls/s | Kalan: %02d:%02d | %ls / %ls",
                     msg->percent, speed_str, msg->eta / 60, msg->eta % 60, dl_str, tot_str);
                 SetWindowTextW(g_hStaticStatus, status_line);
             } else if (wcscmp(msg->status, L"processing") == 0) {
@@ -598,10 +670,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
             } else if (wcscmp(msg->status, L"error") == 0) {
-                SetWindowTextW(g_hStaticStatus, msg->error_msg);
+                SetWindowTextW(g_hStaticStatus, msg->error_msg[0] ? msg->error_msg : L"İndirme hatası.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
-                MessageBoxW(hWnd, msg->error_msg, L"İndirme Hatası", MB_OK | MB_ICONERROR);
+                MessageBoxW(hWnd, msg->error_msg[0] ? msg->error_msg : L"İndirme sırasında bir hata oluştu.", L"İndirme Hatası", MB_OK | MB_ICONERROR);
             }
 
             free(msg);

@@ -33,7 +33,7 @@ void engine_cancel(void)
 {
     EnterCriticalSection(&g_engine_cs);
     g_cancel_requested = 1;
-    if (g_current_process) {
+    if (g_current_process && g_current_process != INVALID_HANDLE_VALUE) {
         TerminateProcess(g_current_process, 0);
     }
     LeaveCriticalSection(&g_engine_cs);
@@ -298,14 +298,16 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
 
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
 
     EnterCriticalSection(&g_engine_cs);
+    HANDLE hProc = g_current_process;
     g_current_process = NULL;
     g_is_busy = 0;
     int was_cancelled = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
+
+    if (hProc) CloseHandle(hProc);
+    if (pi.hThread) CloseHandle(pi.hThread);
 
     if (was_cancelled) {
         if (p->callback) p->callback(0, NULL, L"İşlem kullanıcı tarafından iptal edildi.", p->user_data);
@@ -343,7 +345,8 @@ HANDLE engine_fetch_info_async(
     p->user_data = user_data;
 
     HANDLE hThread = CreateThread(NULL, 0, fetch_thread_proc, p, 0, NULL);
-    return hThread;
+    if (hThread) CloseHandle(hThread);
+    return NULL;
 }
 
 typedef struct {
@@ -543,14 +546,16 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
 
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
 
     EnterCriticalSection(&g_engine_cs);
+    HANDLE hProc = g_current_process;
     g_current_process = NULL;
     g_is_busy = 0;
     int was_cancelled = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
+
+    if (hProc) CloseHandle(hProc);
+    if (pi.hThread) CloseHandle(pi.hThread);
 
     if (p->callback) {
         if (was_cancelled) {
@@ -584,5 +589,6 @@ HANDLE engine_download_async(
     p->user_data = user_data;
 
     HANDLE hThread = CreateThread(NULL, 0, download_thread_proc, p, 0, NULL);
-    return hThread;
+    if (hThread) CloseHandle(hThread);
+    return NULL;
 }
