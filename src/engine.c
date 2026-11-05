@@ -247,7 +247,7 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     }
 
     wchar_t cmd_line[2048];
-    _snwprintf(cmd_line, 2048, L"\"%ls\" --no-interactive --dump-json --no-playlist --no-warnings \"%ls\"", ytdlp_path, p->url);
+    _snwprintf(cmd_line, 2048, L"\"%ls\" --dump-json --no-playlist --no-warnings \"%ls\"", ytdlp_path, p->url);
 
     HANDLE hReadPipe, hWritePipe;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
@@ -294,21 +294,22 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     CloseHandle(hWritePipe);
 
     /* Read JSON stdout */
-    size_t buf_capacity = 256 * 1024;
+    size_t buf_capacity = 1024 * 1024;
     size_t buf_len = 0;
     char *json_buf = (char*)malloc(buf_capacity);
     DWORD bytes_read = 0;
-    char chunk[4096];
+    char chunk[8192];
 
-    while (ReadFile(hReadPipe, chunk, sizeof(chunk) - 1, &bytes_read, NULL) && bytes_read > 0) {
-        if (buf_len + bytes_read >= buf_capacity) {
-            buf_capacity *= 2;
-            json_buf = (char*)realloc(json_buf, buf_capacity);
+    while (ReadFile(hReadPipe, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+        if (buf_len + bytes_read + 1 >= buf_capacity) {
+            buf_capacity = (buf_capacity * 2) + bytes_read + 1;
+            char *new_buf = (char*)realloc(json_buf, buf_capacity);
+            if (new_buf) json_buf = new_buf;
         }
         memcpy(json_buf + buf_len, chunk, bytes_read);
         buf_len += bytes_read;
     }
-    json_buf[buf_len] = '\0';
+    if (json_buf) json_buf[buf_len] = '\0';
 
     CloseHandle(hReadPipe);
     WaitForSingleObject(pi.hProcess, 30000);
@@ -496,7 +497,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
 
     wchar_t cmd_line[4096];
     _snwprintf(cmd_line, 4096,
-        L"\"%ls\" --no-interactive -f \"%ls\" %ls %ls %ls --newline --progress-template \"%%(progress._percent_str)s|%%(progress._speed_str)s|%%(progress._eta_str)s|%%(progress.downloaded_bytes)s|%%(progress.total_bytes)s\" --no-playlist \"%ls\"",
+        L"\"%ls\" -f \"%ls\" %ls %ls %ls --newline --progress-template \"%%(progress._percent_str)s|%%(progress._speed_str)s|%%(progress._eta_str)s|%%(progress.downloaded_bytes)s|%%(progress.total_bytes)s\" --no-playlist \"%ls\"",
         ytdlp_path,
         p->selection.format_id,
         extra_opts,
