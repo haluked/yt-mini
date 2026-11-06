@@ -17,6 +17,15 @@ int is_valid_url(const wchar_t *url)
     while (*url && iswspace(*url)) url++;
     if (*url == L'\0') return 0;
 
+    size_t len = wcslen(url);
+    if (len == 0 || len >= 1024) return 0;
+
+    /* Komut satırına "%ls" olarak verildiği için tırnak, ters bölü ve
+       kontrol karakterleri enjeksiyona yol açabilir. */
+    for (const wchar_t *p = url; *p; p++) {
+        if (*p == L'"' || *p == L'\\' || iswcntrl(*p)) return 0;
+    }
+
     /* Scheme check: must start with http:// or https:// */
     if (wcsncmp(url, L"http://", 7) == 0) {
         return url[7] != L'\0';

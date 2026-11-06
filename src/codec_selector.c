@@ -134,6 +134,128 @@ int get_available_resolutions(const StreamFormat *formats, int count, int *out_r
     return num_res;
 }
 
+static int stream_has_video(const StreamFormat *f)
+{
+    return f && f->vcodec[0] != '\0' && strcmp(f->vcodec, "none") != 0;
+}
+
+static int stream_has_audio(const StreamFormat *f)
+{
+    return f && f->acodec[0] != '\0' && strcmp(f->acodec, "none") != 0;
+}
+
+/* yt-dlp'in generic extractor'ı doğrudan dosyalarda kodek bilgisi vermez:
+   hem vcodec hem acodec "none" olur. Bu tür akışlar seçilemezse indirme boş
+   format kimliğiyle başlıyordu. */
+static int stream_is_direct(const StreamFormat *f)
+{
+    return f && f->format_id[0] != '\0' && f->ext[0] != '\0' &&
+           !stream_has_video(f) && !stream_has_audio(f);
+}
+
+static int ext_is_video(const char *ext)
+{
+    static const char *video_exts[] = {
+        "mp4", "webm", "mkv", "mov", "m4v", "avi", "flv", "ts", "mpg", "mpeg", "3gp", NULL
+    };
+    for (int i = 0; video_exts[i]; i++) {
+        if (_stricmp(ext, video_exts[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+static int ext_is_audio(const char *ext)
+{
+    static const char *audio_exts[] = {
+        "mp3", "m4a", "aac", "opus", "ogg", "oga", "flac", "wav", "wma", "mka", NULL
+    };
+    for (int i = 0; audio_exts[i]; i++) {
+        if (_stricmp(ext, audio_exts[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+static int find_direct_format(const StreamFormat *formats, int count, int want_video)
+{
+    int best = -1;
+    double best_score = -1.0;
+
+    for (int i = 0; i < count; i++) {
+        if (!stream_is_direct(&formats[i])) continue;
+        if (want_video == 1 && !ext_is_video(formats[i].ext)) continue;
+
+        double score = formats[i].tbr;
+        if (want_video == 1 && _stricmp(formats[i].ext, "mp4") == 0) score += 1000.0;
+        if (want_video == 0) {
+            if (ext_is_audio(formats[i].ext)) score += 1000.0;
+            else if (!ext_is_video(formats[i].ext)) score -= 1000.0;
+        }
+        if (score > best_score) {
+            best_score = score;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static int fill_direct_video(const StreamFormat *f, int force_mp4, SelectionResult *result)
+{
+    memset(result, 0, sizeof(SelectionResult));
+    ascii_to_wide(f->format_id, result->format_id, 127);
+    ascii_to_wide(f->format_id, result->video_format_id, 63);
+    wcscpy(result->video_codec, L"unknown");
+    wcscpy(result->audio_codec, L"unknown");
+    ascii_to_wide(f->ext, result->expected_container, 15);
+    result->is_composite = 1;
+    result->is_direct = 1;
+
+    if (f->height > 0) {
+        _snwprintf(result->resolution, 31, L"%dp", f->height);
+    } else {
+        wcscpy(result->resolution, L"Direct");
+    }
+
+    if (force_mp4 && _wcsicmp(result->expected_container, L"mp4") != 0) {
+        result->needs_reencode = 1;
+        wcscpy(result->expected_container, L"mp4");
+        wcscpy(result->warning, L"Doğrudan medya dosyası MP4 ile uyumlu değil; ffmpeg ile dönüştürülecek.");
+        wcscpy(result->reason, L"Doğrudan dosya H.264/AAC MP4 biçimine dönüştürülüyor.");
+    } else {
+        result->needs_reencode = 0;
+        _snwprintf(result->reason, 255,
+            L"Doğrudan medya dosyası (kodek bilgisi yok) .%ls olarak olduğu gibi kaydediliyor.",
+            result->expected_container);
+    }
+    return 1;
+}
+
+static int fill_direct_audio(const StreamFormat *f, const char *pref, SelectionResult *result)
+{
+    memset(result, 0, sizeof(SelectionResult));
+    ascii_to_wide(f->format_id, result->format_id, 127);
+    ascii_to_wide(f->format_id, result->audio_format_id, 63);
+    wcscpy(result->video_codec, L"none");
+    wcscpy(result->audio_codec, L"unknown");
+    wcscpy(result->resolution, L"Audio Only");
+    result->is_composite = 1;
+    result->is_direct = 1;
+    result->needs_reencode = 1;
+
+    if (strcmp(pref, "aac") == 0) {
+        wcscpy(result->expected_container, L"m4a");
+    } else if (strcmp(pref, "mp3") == 0) {
+        wcscpy(result->expected_container, L"mp3");
+    } else {
+        wcscpy(result->expected_container, L"opus");
+    }
+
+    wcscpy(result->warning, L"Doğrudan dosyanın kodek bilgisi yok; ses çıkarma/dönüştürme için ffmpeg gerekir.");
+    _snwprintf(result->reason, 255,
+        L"Doğrudan dosyadan ses çıkarılıp .%ls biçiminde kaydedilecek.",
+        result->expected_container);
+    return 1;
+}
+
 static int select_audio_mode(
     const StreamFormat *formats,
     int count,
@@ -141,6 +263,7 @@ static int select_audio_mode(
     SelectionResult *result
 )
 {
+    memset(result, 0, sizeof(SelectionResult));
     char pref[32] = "opus";
     if (preferred_audio) {
         if (_wcsicmp(preferred_audio, L"aac") == 0) strcpy(pref, "aac");
@@ -176,6 +299,11 @@ static int select_audio_mode(
     }
 
     if (best_idx < 0) {
+        int direct_idx = find_direct_format(formats, count, 0);
+        if (direct_idx >= 0) {
+            return fill_direct_audio(&formats[direct_idx], pref, result);
+        }
+        wcscpy(result->reason, L"Bu bağlantıda ses akışı bulunamadı.");
         return 0;
     }
 
@@ -233,6 +361,7 @@ static int select_video_mode(
     SelectionResult *result
 )
 {
+    memset(result, 0, sizeof(SelectionResult));
     int available_res[MAX_RESOLUTIONS];
     int num_res = get_available_resolutions(formats, count, available_res, MAX_RESOLUTIONS);
 
@@ -307,7 +436,28 @@ static int select_video_mode(
         }
     }
 
-    if (best_vid_idx < 0) return 0;
+    if (best_vid_idx < 0) {
+        int direct_idx = find_direct_format(formats, count, 1);
+        if (direct_idx >= 0) {
+            return fill_direct_video(&formats[direct_idx], force_mp4, result);
+        }
+
+        int has_audio_candidate = 0;
+        for (int i = 0; i < count; i++) {
+            if (stream_has_audio(&formats[i]) ||
+                (stream_is_direct(&formats[i]) && ext_is_audio(formats[i].ext))) {
+                has_audio_candidate = 1;
+                break;
+            }
+        }
+        if (has_audio_candidate) {
+            wcscpy(result->reason,
+                L"Bu bağlantı yalnızca ses içeriyor. 'Yalnızca Ses (Müzik)' seçeneğini kullanın.");
+        } else {
+            wcscpy(result->reason, L"Bu bağlantıda indirilebilecek bir video akışı bulunamadı.");
+        }
+        return 0;
+    }
 
     const StreamFormat *best_vid = &formats[best_vid_idx];
     int is_comp = (best_vid->acodec[0] != '\0' && strcmp(best_vid->acodec, "none") != 0);

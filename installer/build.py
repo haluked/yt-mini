@@ -1,10 +1,10 @@
 """ff-dlp-viewer Tek Komutla Derleme ve Paketleme Scripti (build.py).
 
 İşlem adımları:
-1. ffmpeg ikilisini kontrol eder (yoksa sistemden bin/ altına kopyalar).
-2. PyInstaller ile bağımsız .exe ve çalışma ortamını derler (dist/ff-dlp-viewer).
-3. Inno Setup (ISCC.exe) ile tek parça Setup.exe kurulum dosyası üretir.
-4. Setup.exe için SHA-256 sağlama özeti üretip kaydeder.
+1. İsteğe bağlı ikilileri (ffmpeg.exe, yt-dlp.exe) kontrol eder.
+2. Native C11/Win32 binary'sini derler (build.bat çalıştırır, < 1 MB boyut kontrolü yapar).
+3. Inno Setup (ISCC.exe) mevcutsa tek parça Setup.exe kurulum dosyası üretir.
+4. Çıktılar için SHA-256 sağlama özeti üretip kaydeder.
 """
 
 from __future__ import annotations
@@ -14,6 +14,13 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -26,81 +33,57 @@ def print_step(step: str):
     print(f"\n======================================================\n>> {step}\n======================================================")
 
 
-def ensure_ffmpeg():
-    """bin/ffmpeg.exe dosyasının varlığını garanti eder."""
-    print_step("1/4: ffmpeg İkilisi Kontrol Ediliyor")
+def ensure_binaries():
+    """bin/ altındaki ikilileri (ffmpeg, yt-dlp) kontrol eder."""
+    print_step("1/4: Harici İkililer (ffmpeg, yt-dlp) Kontrol Ediliyor")
     BIN_DIR.mkdir(exist_ok=True)
-    target_ffmpeg = BIN_DIR / "ffmpeg.exe"
 
-    if target_ffmpeg.is_file():
-        print(f"ffmpeg mevcut: {target_ffmpeg}")
-        return True
+    for binary in ["ffmpeg", "yt-dlp"]:
+        target = BIN_DIR / f"{binary}.exe"
+        if target.is_file():
+            print(f"{binary} mevcut: {target}")
+            continue
 
-    # Sistem PATH kontrolü
-    sys_ffmpeg = shutil.which("ffmpeg")
-    if sys_ffmpeg and os.path.isfile(sys_ffmpeg):
-        print(f"Sistemdeki ffmpeg bulundu: {sys_ffmpeg}")
-        print(f"Kopyalanıyor -> {target_ffmpeg}")
-        shutil.copy2(sys_ffmpeg, target_ffmpeg)
-        return True
-
-    print("[UYARI] ffmpeg.exe ne bin/ klasöründe ne de sistem PATH'inde bulunamadı!")
-    print("Lütfen ffmpeg.exe'yi bin/ klasörüne yerleştirin.")
-    return False
+        sys_path = shutil.which(binary)
+        if sys_path and os.path.isfile(sys_path):
+            print(f"Sistemdeki {binary} bulundu: {sys_path}")
+            print(f"Kopyalanıyor -> {target}")
+            shutil.copy2(sys_path, target)
+        else:
+            print(f"[BİLGİ] {binary}.exe yerel bin/ klasöründe bulunamadı (sistem PATH'inde aranacak).")
 
 
-def build_pyinstaller():
-    """PyInstaller ile uygulamayı paketler."""
-    print_step("2/4: PyInstaller ile Uygulama Paketleniyor")
+def build_native_c():
+    """Native C11 Win32 ikilisini build.bat ile derler."""
+    print_step("2/4: Native C11 Binary Derleniyor (Ultra-Lightweight < 1 MB)")
 
-    icon_path = INSTALLER_DIR / "app.ico"
-    cmd = [
-        sys.executable,
-        "-m",
-        "PyInstaller",
-        "--noconfirm",
-        "--clean",
-        "--onedir",
-        "--windowed",
-        "--name", "yt-mini",
-    ]
+    build_bat = PROJECT_ROOT / "build.bat"
+    if not build_bat.is_file():
+        raise FileNotFoundError(f"build.bat bulunamadı: {build_bat}")
 
-    if icon_path.is_file():
-        cmd.extend(["--icon", str(icon_path)])
-
-    # Gerekli veri klasörleri
-    cmd.extend([
-        "--add-data", f"{PROJECT_ROOT / 'ui'};ui",
-        "--add-data", f"{PROJECT_ROOT / 'core'};core",
-        "--add-data", f"{PROJECT_ROOT / 'tray'};tray",
-        "--hidden-import", "PIL",
-        "--hidden-import", "pystray",
-        "--hidden-import", "yt_dlp",
-        str(PROJECT_ROOT / "main.py"),
-    ])
-
-    print("Komut:", " ".join(cmd))
-    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+    res = subprocess.run(["cmd.exe", "/c", str(build_bat)], cwd=str(PROJECT_ROOT))
     if res.returncode != 0:
-        raise RuntimeError("PyInstaller derlemesi başarısız oldu!")
+        raise RuntimeError("Native C derlemesi başarısız oldu!")
 
-    # ffmpeg'i paket içi bin/ altına kopyala
-    output_bin = DIST_DIR / "yt-mini" / "bin"
-    output_bin.mkdir(exist_ok=True)
-    src_ffmpeg = BIN_DIR / "ffmpeg.exe"
-    if src_ffmpeg.is_file():
-        shutil.copy2(src_ffmpeg, output_bin / "ffmpeg.exe")
-        print(f"ffmpeg paket içi bin/ dizinine yerleştirildi: {output_bin / 'ffmpeg.exe'}")
+    exe_path = DIST_DIR / "ff-dlp-viewer.exe"
+    if not exe_path.is_file():
+        raise FileNotFoundError(f"Derlenen executable bulunamadı: {exe_path}")
+
+    size = exe_path.stat().st_size
+    kb = round(size / 1024, 2)
+    print(f"Executable: {exe_path} ({size} bayt / {kb} KB)")
+    if size >= 1024 * 1024:
+        raise ValueError(f"UYARI: Binary boyutu 1 MB sınırını aştı! ({size} bayt)")
+    print(f">> DOĞRULAMA BAŞARILI: {kb} KB (< 1 MB)")
+    return exe_path
 
 
 def find_iscc() -> Path | None:
     """Inno Setup derleyicisini (ISCC.exe) arar."""
-    # PATH kontrolü
     iscc_path = shutil.which("ISCC.exe") or shutil.which("iscc")
     if iscc_path:
         return Path(iscc_path)
 
-    # Standart Windows kurulum dizinleri
     candidates = [
         Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Inno Setup 6" / "ISCC.exe",
         Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Inno Setup 6" / "ISCC.exe",
@@ -119,8 +102,8 @@ def build_inno_setup():
     iscc = find_iscc()
     if not iscc:
         print("[BİLGİ] Inno Setup (ISCC.exe) sistemde bulunamadı.")
-        print("Taşınabilir bağımsız uygulama 'dist/ff-dlp-viewer/' altında hazırlandı.")
-        print("Tek parça 'Setup.exe' üretmek için Inno Setup 6 yükleyin (winget install JRSoftware.InnoSetup).")
+        print("Taşınabilir bağımsız uygulama 'dist/ff-dlp-viewer.exe' hazırlandı.")
+        print("Tek parça 'Setup.exe' üretmek için Inno Setup 6 yükleyebilirsiniz.")
         return None
 
     iss_file = INSTALLER_DIR / "setup.iss"
@@ -130,7 +113,7 @@ def build_inno_setup():
     if res.returncode != 0:
         raise RuntimeError("Inno Setup derlemesi başarısız oldu!")
 
-    setup_exe = DIST_DIR / "ff-dlp-viewer-Setup-v1.0.0.exe"
+    setup_exe = DIST_DIR / "ff-dlp-viewer-Setup-v2.0.0.exe"
     if setup_exe.is_file():
         print(f"[BAŞARILI] Kurulum dosyası üretildi: {setup_exe}")
         return setup_exe
@@ -139,7 +122,6 @@ def build_inno_setup():
 
 def compute_sha256(filepath: Path) -> str:
     """Dosyanın SHA-256 özetini hesaplar ve yanına kaydeder."""
-    print_step("4/4: SHA-256 Bütünlük Özeti Hesaplanıyor")
     sha256 = hashlib.sha256()
     with open(filepath, "rb") as f:
         while chunk := f.read(65536):
@@ -154,15 +136,17 @@ def compute_sha256(filepath: Path) -> str:
 
 
 def main():
-    print("ff-dlp-viewer Otomatik Derleme Süreci Başlıyor...")
-    ensure_ffmpeg()
-    build_pyinstaller()
+    print("ff-dlp-viewer Native C Otomatik Derleme ve Paketleme Başlıyor...")
+    ensure_binaries()
+    exe_path = build_native_c()
+    compute_sha256(exe_path)
+
     setup_exe = build_inno_setup()
     if setup_exe and setup_exe.is_file():
         compute_sha256(setup_exe)
 
     print("\n======================================================")
-    print("TÜM İŞLEMLER TAMAMLANDI!")
+    print("TÜM İŞLEMLER BAŞARIYLA TAMAMLANDI!")
     print(f"Çıktı Dizini: {DIST_DIR}")
     print("======================================================")
 

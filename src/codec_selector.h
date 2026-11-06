@@ -28,6 +28,7 @@ typedef struct {
     wchar_t audio_codec[32];
     wchar_t resolution[32];
     int is_composite;
+    int is_direct;
     int needs_reencode;
     wchar_t reason[256];
     wchar_t warning[256];

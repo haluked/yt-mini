@@ -16,6 +16,9 @@ static void test_detector(void)
     assert(!is_valid_url(L""));
     assert(!is_valid_url(L"ftp://example.com"));
     assert(is_valid_url(L"https://youtube.com/watch?v=1234"));
+    assert(is_valid_url(L"https://example.com/a?b=1&c=2"));
+    assert(!is_valid_url(L"https://example.com/\" --exec \"calc\""));
+    assert(!is_valid_url(L"https://example.com/a\nb"));
 
     PlatformInfo p1 = detect_platform(L"https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     assert(p1.type == PLATFORM_YOUTUBE);
@@ -168,6 +171,50 @@ static void test_codec_selector(void)
     assert(wcscmp(r8.video_format_id, L"http-1080") == 0);
     assert(wcscmp(r8.resolution, L"1080p") == 0);
     assert(wcscmp(r8.expected_container, L"mp4") == 0);
+
+    /* Test 9: Direct media (yt-dlp reports vcodec/acodec as null) */
+    StreamFormat direct_mp4[] = {
+        {"mp4", "mp4", "none", "none", 0, 0, 0, 0, 0, 0}
+    };
+    SelectionResult r9;
+    assert(select_best_format(direct_mp4, 1, L"video", 0, 0, L"opus", &r9));
+    assert(r9.is_direct == 1);
+    assert(wcscmp(r9.format_id, L"mp4") == 0);
+    assert(wcscmp(r9.expected_container, L"mp4") == 0);
+    assert(r9.needs_reencode == 0);
+
+    /* Test 10: Direct webm forced to MP4 needs re-encode */
+    StreamFormat direct_webm[] = {
+        {"webm", "webm", "none", "none", 0, 0, 0, 0, 0, 0}
+    };
+    SelectionResult r10;
+    assert(select_best_format(direct_webm, 1, L"video", 0, 1, L"opus", &r10));
+    assert(r10.is_direct == 1);
+    assert(wcscmp(r10.expected_container, L"mp4") == 0);
+    assert(r10.needs_reencode == 1);
+
+    /* Test 11: Direct file in audio mode is extracted/converted */
+    SelectionResult r11;
+    assert(select_best_format(direct_mp4, 1, L"audio", 0, 0, L"mp3", &r11));
+    assert(r11.is_direct == 1);
+    assert(wcscmp(r11.expected_container, L"mp3") == 0);
+    assert(r11.needs_reencode == 1);
+
+    /* Test 12: Audio-only source in video mode fails with a clear reason */
+    StreamFormat audio_only[] = {
+        {"251", "webm", "none", "opus", 0, 0, 0, 0, 160, 160}
+    };
+    SelectionResult r12;
+    assert(!select_best_format(audio_only, 1, L"video", 0, 0, L"opus", &r12));
+    assert(wcsstr(r12.reason, L"Yalnızca Ses") != NULL);
+
+    /* Test 13: No audio source in audio mode fails with a clear reason */
+    StreamFormat video_only[] = {
+        {"137", "mp4", "avc1.640028", "none", 1920, 1080, 30, 3000, 0, 3000}
+    };
+    SelectionResult r13;
+    assert(!select_best_format(video_only, 1, L"audio", 0, 0, L"opus", &r13));
+    assert(r13.reason[0] != L'\0');
 
     printf("  -> Codec Selector tests PASSED!\n");
 }

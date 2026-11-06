@@ -5,24 +5,56 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <wctype.h>
 #include <shlobj.h>
 
 static HANDLE g_current_process = NULL;
+static HANDLE g_current_job = NULL;
 static volatile int g_cancel_requested = 0;
 static CRITICAL_SECTION g_engine_cs;
 static EngineState g_engine_state = ENGINE_STATE_IDLE;
+static volatile LONG g_active_workers = 0;
+static HANDLE g_workers_done = NULL;
 
 int engine_init(void)
 {
     InitializeCriticalSection(&g_engine_cs);
     g_engine_state = ENGINE_STATE_IDLE;
+    g_cancel_requested = 0;
+    g_active_workers = 0;
+    g_workers_done = CreateEventW(NULL, TRUE, TRUE, NULL);
     return 1;
 }
 
 void engine_cleanup(void)
 {
     engine_cancel();
-    DeleteCriticalSection(&g_engine_cs);
+
+    /* Çalışan thread'ler kritik bölümü kullanmayı bırakmadan silmek
+       use-after-free'e yol açıyordu. Önce bitmelerini bekle. */
+    if (g_workers_done) {
+        WaitForSingleObject(g_workers_done, 5000);
+    }
+    if (InterlockedCompareExchange(&g_active_workers, 0, 0) == 0) {
+        DeleteCriticalSection(&g_engine_cs);
+    }
+    if (g_workers_done) {
+        CloseHandle(g_workers_done);
+        g_workers_done = NULL;
+    }
+}
+
+static void worker_started(void)
+{
+    InterlockedIncrement(&g_active_workers);
+    if (g_workers_done) ResetEvent(g_workers_done);
+}
+
+static void worker_finished(void)
+{
+    if (InterlockedDecrement(&g_active_workers) == 0 && g_workers_done) {
+        SetEvent(g_workers_done);
+    }
 }
 
 EngineState engine_get_state(void)
@@ -42,7 +74,10 @@ void engine_cancel(void)
 {
     EnterCriticalSection(&g_engine_cs);
     g_cancel_requested = 1;
-    if (g_current_process && g_current_process != INVALID_HANDLE_VALUE) {
+    if (g_current_job) {
+        /* Job object yt-dlp ile birlikte ffmpeg alt sürecini de sonlandırır. */
+        TerminateJobObject(g_current_job, 1);
+    } else if (g_current_process && g_current_process != INVALID_HANDLE_VALUE) {
         TerminateProcess(g_current_process, 0);
     }
     LeaveCriticalSection(&g_engine_cs);
@@ -115,6 +150,78 @@ int engine_find_ffmpeg(wchar_t *out_path, size_t max_len)
     return find_binary(L"ffmpeg", out_path, max_len);
 }
 
+static HANDLE create_kill_job(void)
+{
+    HANDLE job = CreateJobObjectW(NULL, NULL);
+    if (!job) return NULL;
+
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION info;
+    memset(&info, 0, sizeof(info));
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info, sizeof(info))) {
+        CloseHandle(job);
+        return NULL;
+    }
+    return job;
+}
+
+/* Komut satırına tırnak içinde giren değerlerde tırnak/ters bölü/kontrol
+   karakteri olmamalı; aksi halde argüman sınırı aşılabilir. */
+static int safe_command_arg(const wchar_t *s)
+{
+    if (!s || !*s) return 0;
+    for (const wchar_t *p = s; *p; p++) {
+        if (*p == L'"' || *p == L'\\' || iswcntrl(*p)) return 0;
+    }
+    return 1;
+}
+
+static int utf8_to_wide_bounded(const char *src, int src_len, wchar_t *dst, size_t max_len)
+{
+    if (!dst || max_len == 0) return 0;
+    if (!src || src_len <= 0) {
+        dst[0] = L'\0';
+        return 0;
+    }
+    int n = MultiByteToWideChar(CP_UTF8, 0, src, src_len, dst, (int)(max_len - 1));
+    if (n <= 0) {
+        dst[0] = L'\0';
+        return 0;
+    }
+    dst[n] = L'\0';
+    return 1;
+}
+
+static void extract_last_error(const char *buf, wchar_t *out, size_t max_len)
+{
+    if (!out || max_len == 0) return;
+    out[0] = L'\0';
+    if (!buf) return;
+
+    const char *last = NULL;
+    const char *p = buf;
+    while ((p = strstr(p, "ERROR:")) != NULL) {
+        last = p;
+        p += 6;
+    }
+    if (!last) return;
+
+    last += 6;
+    while (*last == ' ' || *last == '\t') last++;
+    const char *end = last;
+    while (*end && *end != '\r' && *end != '\n') end++;
+    int len = (int)(end - last);
+    if (len > 500) len = 500;
+    utf8_to_wide_bounded(last, len, out, max_len);
+}
+
+static int ensure_directory(const wchar_t *dir)
+{
+    if (!dir || !*dir) return 0;
+    int rc = SHCreateDirectoryExW(NULL, dir, NULL);
+    return rc == ERROR_SUCCESS || rc == ERROR_ALREADY_EXISTS || rc == ERROR_FILE_EXISTS;
+}
+
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len)
 {
     if (seconds <= 0) {
@@ -164,17 +271,19 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
     cJSON *title_item = cJSON_GetObjectItem(root, "title");
     if (cJSON_IsString(title_item) && title_item->valuestring) {
         MultiByteToWideChar(CP_UTF8, 0, title_item->valuestring, -1, meta->title, 255);
+        meta->title[255] = L'\0';
     }
 
     cJSON *dur_item = cJSON_GetObjectItem(root, "duration");
     if (cJSON_IsNumber(dur_item)) {
         meta->duration = dur_item->valueint;
-        format_duration_str(meta->duration, meta->duration_str, sizeof(meta->duration_str)/sizeof(wchar_t));
     }
+    format_duration_str(meta->duration, meta->duration_str, sizeof(meta->duration_str)/sizeof(wchar_t));
 
     cJSON *thumb_item = cJSON_GetObjectItem(root, "thumbnail");
     if (cJSON_IsString(thumb_item) && thumb_item->valuestring) {
         MultiByteToWideChar(CP_UTF8, 0, thumb_item->valuestring, -1, meta->thumbnail_url, 511);
+        meta->thumbnail_url[511] = L'\0';
     }
 
     cJSON *formats_array = cJSON_GetObjectItem(root, "formats");
@@ -226,13 +335,51 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
         meta->num_resolutions = get_available_resolutions(meta->formats, meta->format_count, meta->available_resolutions, MAX_RESOLUTIONS);
     }
 
+    /* Eğer 'formats' dizisi yoksa veya boşsa, root düzeyindeki tekil format bilgilerini kontrol et */
+    if (meta->format_count == 0) {
+        cJSON *id = cJSON_GetObjectItem(root, "format_id");
+        cJSON *ext = cJSON_GetObjectItem(root, "ext");
+        cJSON *url = cJSON_GetObjectItem(root, "url");
+        if ((id && cJSON_IsString(id)) || (ext && cJSON_IsString(ext)) || (url && cJSON_IsString(url))) {
+            StreamFormat *sf = &meta->formats[0];
+            memset(sf, 0, sizeof(StreamFormat));
+            if (id && cJSON_IsString(id) && id->valuestring) strncpy(sf->format_id, id->valuestring, 63);
+            else if (ext && cJSON_IsString(ext) && ext->valuestring) strncpy(sf->format_id, ext->valuestring, 63);
+            else strcpy(sf->format_id, "direct");
+
+            if (ext && cJSON_IsString(ext) && ext->valuestring) strncpy(sf->ext, ext->valuestring, 15);
+            else strcpy(sf->ext, "mp4");
+
+            cJSON *vc = cJSON_GetObjectItem(root, "vcodec");
+            if (cJSON_IsString(vc) && vc->valuestring) strncpy(sf->vcodec, vc->valuestring, 63);
+            else strcpy(sf->vcodec, "none");
+
+            cJSON *ac = cJSON_GetObjectItem(root, "acodec");
+            if (cJSON_IsString(ac) && ac->valuestring) strncpy(sf->acodec, ac->valuestring, 63);
+            else strcpy(sf->acodec, "none");
+
+            cJSON *h = cJSON_GetObjectItem(root, "height");
+            if (cJSON_IsNumber(h)) sf->height = h->valueint;
+
+            cJSON *w = cJSON_GetObjectItem(root, "width");
+            if (cJSON_IsNumber(w)) sf->width = w->valueint;
+
+            cJSON *fps = cJSON_GetObjectItem(root, "fps");
+            if (cJSON_IsNumber(fps)) sf->fps = fps->valueint;
+
+            meta->format_count = 1;
+            meta->num_resolutions = get_available_resolutions(meta->formats, 1, meta->available_resolutions, MAX_RESOLUTIONS);
+        }
+    }
+
     cJSON_Delete(root);
 }
 
-static DWORD WINAPI fetch_thread_proc(LPVOID param)
+static DWORD WINAPI fetch_thread_main(LPVOID param)
 {
     FetchThreadParams *p = (FetchThreadParams*)param;
     wchar_t ytdlp_path[MAX_PATH];
+    HANDLE job = NULL;
 
     if (!engine_find_ytdlp(ytdlp_path, MAX_PATH)) {
         EnterCriticalSection(&g_engine_cs);
@@ -242,6 +389,16 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
         if (p->callback) {
             p->callback(0, NULL, L"yt-dlp.exe bulunamadı! Lütfen bin/ klasörüne yerleştirin.", p->user_data);
         }
+        free(p);
+        return 0;
+    }
+
+    if (!safe_command_arg(p->url)) {
+        EnterCriticalSection(&g_engine_cs);
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+
+        if (p->callback) p->callback(0, NULL, L"Geçersiz bağlantı adresi.", p->user_data);
         free(p);
         return 0;
     }
@@ -274,21 +431,37 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     PROCESS_INFORMATION pi;
     memset(&pi, 0, sizeof(pi));
 
+    job = create_kill_job();
+
     EnterCriticalSection(&g_engine_cs);
-    g_cancel_requested = 0;
-    BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
+        CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
     if (!ok) {
         g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
         CloseHandle(hWritePipe);
         CloseHandle(hReadPipe);
+        if (job) CloseHandle(job);
         if (p->callback) p->callback(0, NULL, L"yt-dlp süreci başlatılamadı.", p->user_data);
         free(p);
         return 0;
     }
 
+    if (job && !AssignProcessToJobObject(job, pi.hProcess)) {
+        CloseHandle(job);
+        job = NULL;
+    }
+    ResumeThread(pi.hThread);
+
     g_current_process = pi.hProcess;
+    g_current_job = job;
+    int cancel_now = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
+
+    if (cancel_now) {
+        if (g_current_job) TerminateJobObject(g_current_job, 1);
+        else TerminateProcess(pi.hProcess, 0);
+    }
 
     /* Close write end immediately so ReadFile sees EOF when child terminates */
     CloseHandle(hWritePipe);
@@ -297,57 +470,106 @@ static DWORD WINAPI fetch_thread_proc(LPVOID param)
     size_t buf_capacity = 1024 * 1024;
     size_t buf_len = 0;
     char *json_buf = (char*)malloc(buf_capacity);
+    if (!json_buf) {
+        TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, 5000);
+        CloseHandle(hReadPipe);
+
+        EnterCriticalSection(&g_engine_cs);
+        HANDLE hProc = g_current_process;
+        HANDLE hJob = g_current_job;
+        g_current_process = NULL;
+        g_current_job = NULL;
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+
+        if (hJob) CloseHandle(hJob);
+        if (hProc) CloseHandle(hProc);
+        if (pi.hThread) CloseHandle(pi.hThread);
+        if (p->callback) p->callback(0, NULL, L"Bellek yetersiz.", p->user_data);
+        free(p);
+        return 0;
+    }
+
     DWORD bytes_read = 0;
     char chunk[8192];
+    int truncated = 0;
 
     while (ReadFile(hReadPipe, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
         if (buf_len + bytes_read + 1 >= buf_capacity) {
             buf_capacity = (buf_capacity * 2) + bytes_read + 1;
             char *new_buf = (char*)realloc(json_buf, buf_capacity);
-            if (new_buf) json_buf = new_buf;
+            if (!new_buf) {
+                /* Boru tıkanmasın diye okumaya devam et, ama veriyi at. */
+                truncated = 1;
+                continue;
+            }
+            json_buf = new_buf;
         }
         memcpy(json_buf + buf_len, chunk, bytes_read);
         buf_len += bytes_read;
     }
-    if (json_buf) json_buf[buf_len] = '\0';
+    json_buf[buf_len] = '\0';
 
     CloseHandle(hReadPipe);
-    WaitForSingleObject(pi.hProcess, 30000);
+    WaitForSingleObject(pi.hProcess, INFINITE);
 
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
 
     EnterCriticalSection(&g_engine_cs);
     HANDLE hProc = g_current_process;
+    HANDLE hJob = g_current_job;
     g_current_process = NULL;
+    g_current_job = NULL;
     g_engine_state = ENGINE_STATE_IDLE;
     int was_cancelled = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
 
+    if (hJob) CloseHandle(hJob);
     if (hProc) CloseHandle(hProc);
     if (pi.hThread) CloseHandle(pi.hThread);
 
     if (was_cancelled) {
         if (p->callback) p->callback(0, NULL, L"İşlem kullanıcı tarafından iptal edildi.", p->user_data);
+    } else if (truncated) {
+        if (p->callback) p->callback(0, NULL, L"yt-dlp yanıtı çok büyük; medya bilgisi okunamadı.", p->user_data);
     } else if (exit_code != 0 || buf_len == 0) {
         wchar_t err_msg[512] = L"Video bilgisi alınamadı. Bağlantıyı kontrol edin.";
         if (strstr(json_buf, "Private video")) wcscpy(err_msg, L"Bu video gizli veya erişilemez.");
         else if (strstr(json_buf, "Sign in to confirm")) wcscpy(err_msg, L"Bu video oturum açma veya yaş onayı gerektiriyor.");
         else if (strstr(json_buf, "Video unavailable")) wcscpy(err_msg, L"Bu video kullanılamıyor veya silinmiş.");
+        else {
+            wchar_t detail[512];
+            extract_last_error(json_buf, detail, 512);
+            if (detail[0]) {
+                _snwprintf(err_msg, 512, L"yt-dlp: %ls", detail);
+            }
+        }
 
         if (p->callback) p->callback(0, NULL, err_msg, p->user_data);
     } else {
         MediaMetadata *meta = (MediaMetadata*)malloc(sizeof(MediaMetadata));
-        parse_json_metadata(json_buf, meta);
-        meta->platform = detect_platform(p->url);
-
-        if (p->callback) p->callback(1, meta, NULL, p->user_data);
-        free(meta);
+        if (meta) {
+            parse_json_metadata(json_buf, meta);
+            meta->platform = detect_platform(p->url);
+            if (p->callback) p->callback(1, meta, NULL, p->user_data);
+            free(meta);
+        } else if (p->callback) {
+            p->callback(0, NULL, L"Bellek yetersiz.", p->user_data);
+        }
     }
 
     free(json_buf);
     free(p);
     return 0;
+}
+
+static DWORD WINAPI fetch_thread_proc(LPVOID param)
+{
+    DWORD rc = fetch_thread_main(param);
+    worker_finished();
+    return rc;
 }
 
 int engine_fetch_info_async(
@@ -362,19 +584,28 @@ int engine_fetch_info_async(
         return 0; /* Busy with another task */
     }
     g_engine_state = ENGINE_STATE_FETCHING;
+    g_cancel_requested = 0;
     LeaveCriticalSection(&g_engine_cs);
 
     FetchThreadParams *p = (FetchThreadParams*)malloc(sizeof(FetchThreadParams));
+    if (!p) {
+        EnterCriticalSection(&g_engine_cs);
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+        return 0;
+    }
     wcsncpy(p->url, url, 1023);
     p->url[1023] = L'\0';
     p->callback = callback;
     p->user_data = user_data;
 
+    worker_started();
     HANDLE hThread = CreateThread(NULL, 0, fetch_thread_proc, p, 0, NULL);
     if (hThread) {
         CloseHandle(hThread);
         return 1;
     }
+    worker_finished();
 
     EnterCriticalSection(&g_engine_cs);
     g_engine_state = ENGINE_STATE_IDLE;
@@ -453,22 +684,46 @@ static void parse_progress_line(
     *out_total = atoll(pipe4 + 1);
 }
 
-static DWORD WINAPI download_thread_proc(LPVOID param)
+static void download_fail(DownloadThreadParams *p, const wchar_t *message)
+{
+    EnterCriticalSection(&g_engine_cs);
+    g_engine_state = ENGINE_STATE_IDLE;
+    LeaveCriticalSection(&g_engine_cs);
+    if (p->callback) {
+        p->callback(L"error", 0, 0, 0, 0, 0, L"", message, p->user_data);
+    }
+    free(p);
+}
+
+static DWORD WINAPI download_thread_main(LPVOID param)
 {
     DownloadThreadParams *p = (DownloadThreadParams*)param;
     wchar_t ytdlp_path[MAX_PATH];
     wchar_t ffmpeg_path[MAX_PATH];
     int has_ffmpeg = engine_find_ffmpeg(ffmpeg_path, MAX_PATH);
+    HANDLE job = NULL;
 
     if (!engine_find_ytdlp(ytdlp_path, MAX_PATH)) {
-        EnterCriticalSection(&g_engine_cs);
-        g_engine_state = ENGINE_STATE_IDLE;
-        LeaveCriticalSection(&g_engine_cs);
+        download_fail(p, L"yt-dlp.exe bulunamadı! Lütfen bin/ klasörüne yerleştirin.");
+        return 0;
+    }
 
-        if (p->callback) {
-            p->callback(L"error", 0, 0, 0, 0, 0, L"", L"yt-dlp.exe bulunamadı!", p->user_data);
-        }
-        free(p);
+    if (!safe_command_arg(p->url) ||
+        !safe_command_arg(p->selection.format_id) ||
+        !safe_command_arg(p->selection.expected_container)) {
+        download_fail(p, L"Geçersiz indirme parametresi.");
+        return 0;
+    }
+
+    int audio_mode = (wcscmp(p->selection.resolution, L"Audio Only") == 0);
+    int needs_ffmpeg = audio_mode || !p->selection.is_direct || p->selection.needs_reencode;
+    if (needs_ffmpeg && !has_ffmpeg) {
+        download_fail(p, L"ffmpeg.exe bulunamadı. Birleştirme veya dönüştürme için ffmpeg gerekli.");
+        return 0;
+    }
+
+    if (!ensure_directory(p->dest_dir)) {
+        download_fail(p, L"İndirme klasörü oluşturulamadı. Lütfen başka bir klasör seçin.");
         return 0;
     }
 
@@ -479,11 +734,14 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
         _snwprintf(ffmpeg_dir_arg, sizeof(ffmpeg_dir_arg)/sizeof(wchar_t), L"--ffmpeg-location \"%ls\"", ffmpeg_path);
     }
 
-    wchar_t out_template[MAX_PATH + 32];
-    _snwprintf(out_template, sizeof(out_template)/sizeof(wchar_t), L"-o \"%ls\\%%(title)s.%%(ext)s\"", p->dest_dir);
+    /* Uzun başlıklar MAX_PATH'i aşmasın ve aynı başlıklı videolar
+       birbirinin üzerine yazılmasın. */
+    wchar_t out_template[MAX_PATH + 64];
+    _snwprintf(out_template, sizeof(out_template)/sizeof(wchar_t),
+        L"-o \"%ls\\%%(title).150B [%%(id)s].%%(ext)s\"", p->dest_dir);
 
-    wchar_t extra_opts[256] = L"";
-    if (wcscmp(p->selection.resolution, L"Audio Only") == 0) {
+    wchar_t extra_opts[512] = L"";
+    if (audio_mode) {
         if (_wcsicmp(p->selection.expected_container, L"mp3") == 0) {
             wcscpy(extra_opts, L"-x --audio-format mp3");
         } else if (_wcsicmp(p->selection.expected_container, L"m4a") == 0) {
@@ -491,8 +749,10 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
         } else {
             wcscpy(extra_opts, L"-x --audio-format opus");
         }
-    } else {
-        _snwprintf(extra_opts, 255, L"--merge-output-format %ls", p->selection.expected_container);
+    } else if (p->selection.needs_reencode) {
+        _snwprintf(extra_opts, 511, L"--recode-video %ls", p->selection.expected_container);
+    } else if (!p->selection.is_direct) {
+        _snwprintf(extra_opts, 511, L"--merge-output-format %ls", p->selection.expected_container);
     }
 
     wchar_t cmd_line[4096];
@@ -509,12 +769,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     HANDLE hReadPipe, hWritePipe;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
     if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
-        EnterCriticalSection(&g_engine_cs);
-        g_engine_state = ENGINE_STATE_IDLE;
-        LeaveCriticalSection(&g_engine_cs);
-
-        if (p->callback) p->callback(L"error", 0, 0, 0, 0, 0, L"", L"Boru hattı oluşturulamadı.", p->user_data);
-        free(p);
+        download_fail(p, L"Boru hattı oluşturulamadı.");
         return 0;
     }
     SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
@@ -531,21 +786,37 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     PROCESS_INFORMATION pi;
     memset(&pi, 0, sizeof(pi));
 
+    job = create_kill_job();
+
     EnterCriticalSection(&g_engine_cs);
-    g_cancel_requested = 0;
-    BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
+        CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
     if (!ok) {
         g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
         CloseHandle(hWritePipe);
         CloseHandle(hReadPipe);
+        if (job) CloseHandle(job);
         if (p->callback) p->callback(L"error", 0, 0, 0, 0, 0, L"", L"İndirme süreci başlatılamadı.", p->user_data);
         free(p);
         return 0;
     }
 
+    if (job && !AssignProcessToJobObject(job, pi.hProcess)) {
+        CloseHandle(job);
+        job = NULL;
+    }
+    ResumeThread(pi.hThread);
+
     g_current_process = pi.hProcess;
+    g_current_job = job;
+    int cancel_now = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
+
+    if (cancel_now) {
+        if (g_current_job) TerminateJobObject(g_current_job, 1);
+        else TerminateProcess(pi.hProcess, 0);
+    }
 
     /* Close write end immediately so ReadFile sees EOF when process finishes */
     CloseHandle(hWritePipe);
@@ -555,6 +826,7 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
     size_t line_len = 0;
     char ch;
     DWORD bytes_read = 0;
+    char last_error[768] = "";
 
     double last_percent = 0.0;
     double last_speed = 0.0;
@@ -566,12 +838,21 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
         if (ch == '\r' || ch == '\n') {
             if (line_len > 0) {
                 line_buf[line_len] = '\0';
-                if (strchr(line_buf, '|')) {
+                const char *trimmed = line_buf;
+                while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+
+                if (strncmp(trimmed, "ERROR:", 6) == 0) {
+                    strncpy(last_error, trimmed, sizeof(last_error) - 1);
+                    last_error[sizeof(last_error) - 1] = '\0';
+                } else if (strchr(line_buf, '|')) {
                     parse_progress_line(line_buf, &last_percent, &last_speed, &last_eta, &last_downloaded, &last_total);
                     if (p->callback) {
                         p->callback(L"downloading", last_percent, last_speed, last_eta, last_downloaded, last_total, L"", NULL, p->user_data);
                     }
-                } else if (strstr(line_buf, "[Merger]") || strstr(line_buf, "[ExtractAudio]")) {
+                } else if (strstr(line_buf, "[Merger]") ||
+                           strstr(line_buf, "[ExtractAudio]") ||
+                           strstr(line_buf, "[VideoConvertor]") ||
+                           strstr(line_buf, "[Fixup")) {
                     if (p->callback) {
                         p->callback(L"processing", 100.0, 0, 0, last_total, last_total, L"", NULL, p->user_data);
                     }
@@ -591,11 +872,14 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
 
     EnterCriticalSection(&g_engine_cs);
     HANDLE hProc = g_current_process;
+    HANDLE hJob = g_current_job;
     g_current_process = NULL;
+    g_current_job = NULL;
     g_engine_state = ENGINE_STATE_IDLE;
     int was_cancelled = g_cancel_requested;
     LeaveCriticalSection(&g_engine_cs);
 
+    if (hJob) CloseHandle(hJob);
     if (hProc) CloseHandle(hProc);
     if (pi.hThread) CloseHandle(pi.hThread);
 
@@ -605,12 +889,35 @@ static DWORD WINAPI download_thread_proc(LPVOID param)
         } else if (exit_code == 0) {
             p->callback(L"finished", 100.0, 0, 0, last_total, last_total, L"", NULL, p->user_data);
         } else {
-            p->callback(L"error", 0, 0, 0, 0, 0, L"", L"İndirme sırasında bir hata oluştu.", p->user_data);
+            wchar_t detail[512];
+            wchar_t message[768] = L"İndirme sırasında bir hata oluştu.";
+            extract_last_error(last_error, detail, 512);
+            if (detail[0]) {
+                if (wcsstr(detail, L"Requested format is not available")) {
+                    wcscpy(message, L"Seçilen format bu bağlantıda mevcut değil. Farklı bir kalite deneyin.");
+                } else if (wcsstr(detail, L"ffmpeg") || wcsstr(detail, L"ffprobe")) {
+                    wcscpy(message, L"ffmpeg bulunamadı veya çalıştırılamadı. Birleştirme/dönüştürme yapılamıyor.");
+                } else if (wcsstr(detail, L"HTTP Error 403")) {
+                    wcscpy(message, L"Sunucu indirmeye izin vermedi (HTTP 403). Bağlantıyı tarayıcıda açıp tekrar deneyin.");
+                } else if (wcsstr(detail, L"Unable to download webpage")) {
+                    wcscpy(message, L"Bağlantıya erişilemedi. İnternet bağlantınızı kontrol edin.");
+                } else {
+                    _snwprintf(message, 768, L"yt-dlp: %ls", detail);
+                }
+            }
+            p->callback(L"error", 0, 0, 0, 0, 0, L"", message, p->user_data);
         }
     }
 
     free(p);
     return 0;
+}
+
+static DWORD WINAPI download_thread_proc(LPVOID param)
+{
+    DWORD rc = download_thread_main(param);
+    worker_finished();
+    return rc;
 }
 
 int engine_download_async(
@@ -627,9 +934,16 @@ int engine_download_async(
         return 0; /* Busy with another task */
     }
     g_engine_state = ENGINE_STATE_DOWNLOADING;
+    g_cancel_requested = 0;
     LeaveCriticalSection(&g_engine_cs);
 
     DownloadThreadParams *p = (DownloadThreadParams*)malloc(sizeof(DownloadThreadParams));
+    if (!p) {
+        EnterCriticalSection(&g_engine_cs);
+        g_engine_state = ENGINE_STATE_IDLE;
+        LeaveCriticalSection(&g_engine_cs);
+        return 0;
+    }
     wcsncpy(p->url, url, 1023);
     p->url[1023] = L'\0';
     memcpy(&p->selection, selection, sizeof(SelectionResult));
@@ -638,11 +952,13 @@ int engine_download_async(
     p->callback = callback;
     p->user_data = user_data;
 
+    worker_started();
     HANDLE hThread = CreateThread(NULL, 0, download_thread_proc, p, 0, NULL);
     if (hThread) {
         CloseHandle(hThread);
         return 1;
     }
+    worker_finished();
 
     EnterCriticalSection(&g_engine_cs);
     g_engine_state = ENGINE_STATE_IDLE;

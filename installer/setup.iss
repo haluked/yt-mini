@@ -1,11 +1,11 @@
-; Inno Setup 6 Scripti - yt-mini
+; Inno Setup 6 Scripti - ff-dlp-viewer
 ; Türkçe arayüzlü, %LOCALAPPDATA% altına yönetici izni gerektirmeyen temiz kurulum
 
-#define MyAppName "yt-mini"
+#define MyAppName "ff-dlp-viewer"
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "Haluk"
-#define MyAppURL "https://github.com/haluked/yt-mini"
-#define MyAppExeName "yt-mini.exe"
+#define MyAppURL "https://github.com/haluked/ff-dlp-viewer"
+#define MyAppExeName "ff-dlp-viewer.exe"
 
 [Setup]
 AppId={{D37E8492-9C81-4B2E-A1E4-7832B6E1F091}
@@ -20,7 +20,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=yt-mini-Setup-v{#MyAppVersion}
+OutputBaseFilename=ff-dlp-viewer-Setup-v{#MyAppVersion}
 SetupIconFile=app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -36,10 +36,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "autostart"; Description: "Windows açıldığında sistem tepsisinde (tray) otomatik başlat"; GroupDescription: "Başlangıç Ayarları:"
 
 [Files]
-; PyInstaller ile derlenmiş ana uygulama dosyaları
-Source: "..\dist\yt-mini\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; ffmpeg ikilisi (bin klasörüne yerleşir)
+; Native C11 Win32 derlenmiş ana uygulama (< 1 MB)
+Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+; İsteğe bağlı bağımlılıklar (varsa bin/ altına kopyalanır)
 Source: "..\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion external; Check: FileExists(ExpandConstant('{src}\..\bin\ffmpeg.exe'))
+Source: "..\bin\yt-dlp.exe"; DestDir: "{app}\bin"; Flags: ignoreversion external; Check: FileExists(ExpandConstant('{src}\..\bin\yt-dlp.exe'))
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -47,8 +48,8 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-; Windows açılışında tray modunda başlatma
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue; Tasks: autostart
+; Windows açılışında otomatik başlatma
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

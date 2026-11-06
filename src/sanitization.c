@@ -6,7 +6,7 @@
 
 static int is_forbidden_char(wchar_t c)
 {
-    if (c >= 0 && c <= 31) return 1;
+    if (c <= 31) return 1;
     switch (c) {
         case L'<':
         case L'>':

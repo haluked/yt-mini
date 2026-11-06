@@ -1,151 +1,106 @@
-# yt-mini (v2.0)
+# ff-dlp-viewer (v2.0 Native Light)
 
-> Windows için hafif, sistem tepsisinde (tray) yaşayan, yt-dlp ve ffmpeg destekli video ve ses indirme aracı.
+> Windows için ultra hafif (< 1 MB), çalışma zamanı gerektirmeyen (sıfır Python/Electron), yerel Win32 GUI tabanlı video ve ses indirme aracı.
 
-[![Python](https://img.shields.io/badge/Python-3.11+-4B8BBE?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
+[![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
+[![Binary Size](https://img.shields.io/badge/Binary_Size-~200_KB-brightgreen?style=flat-square)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-8CBE9C?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-93BCD2?style=flat-square&logo=windows)](https://microsoft.com/windows)
-[![Tests](https://img.shields.io/badge/Tests-44_Passed-success?style=flat-square)](tests/)
 
 ---
 
-## Ekran Görüntüsü
+## Genel Bakış
 
-"Kırtasiye defteri" düzeni: sıcak kağıt zemin, solda defterin kırmızı kenar çizgisi,
-fosforlu kalem sarısı yalnızca **seçili** olanı işaretler.
+**ff-dlp-viewer**, Python çalışma zamanı, PyInstaller veya Electron gibi ağır bağımlılıkları tamamen ortadan kaldırarak saf C11 ve yerel Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`) kullanılarak sıfırdan yeniden yazılmıştır.
 
-```
-+--------------------------------------------------------------+
-| [yt]  yt-mini                                    [ YOUTUBE ] |
-|       Hafif Video & Ses İndirici (v2.0)                      |
-+--------------------------------------------------------------+
-|  BAĞLANTI                                                    |
-|  -----------                                                 |
-|  [ Bağlantıyı buraya yapıştırın...   ] [Yapıştır] [Bilgi Getir]
-|  YouTube · Instagram · TikTok · X bağlantıları desteklenir    |
-|  ----------------------------------------------------------- |
-|  MEDYA                                                       |
-|  -----------                                                 |
-|  +------------+  Test YouTube 4K Video                       |
-|  | önizleme   |  YouTube · 03:35 · 5 kalite                   |
-|  +------------+  AV1 + OPUS -> .webm · kopyalama              |
-|  [Video] [Sadece Ses]                                        |
-|  Kalite  [En İyi] [2160p] [1080p] [720p] [480p]              |
-|  [x] MP4 olarak kaydet                                       |
-|  i  Akış olduğu gibi kopyalanır, yeniden kodlanmaz.           |
-|  ----------------------------------------------------------- |
-|  [|||||||||||||||||||||||||||                 ]               |
-|  %64 · 12.4 MB/s                         45.0 MB / 70.0 MB   |
-|  [ İndir ]  [ İptal ]                       [ Klasörü Aç ]    |
-+--------------------------------------------------------------+
-```
+Nihai çalıştırılabilir dosya boyutu **yalnızca ~200 KB** olup, bellek tüketimi 10-15 MB civarındadır.
 
 ---
 
 ## Öne Çıkan Özellikler
 
-- **Ultra Düşük Bellek (RAM) ve CPU Tüketimi**:
-  - Ağır kütüphaneler yerine saf Python Tkinter tabanlı özel piksel arayüz.
-  - Pencere açıkken ~55 MB, sistem tepsisine küçültüldüğünde nesneler serbest bırakılır ve Windows Working Set trimming ile RAM ayak izi minimize edilir.
-- **Sistem Tepsisi Yaşam Döngüsü (WhatsApp / Steam Modeli)**:
-  - Pencere kapatıldığında arka planda sessizce bekler, çalışmayı kesmez.
-  - Tepsi ikonuna sol tık ile pencere öne gelir; sağ tık ile güncelleme denetimi veya çıkış yapılır.
-  - İndirme devam ederken kazara çıkışları önlemek için onay penceresi devreye girer.
-- **Deterministik ve Kaynağa Saygılı Kodek Seçimi (No Needless Re-encode)**:
-  - Matematiksel kodek önceliği: Video için `AV1 > VP9 > H.265 > H.264`, Ses için `Opus > AAC > MP3`.
-  - Kaynak ne sunuyorsa (WebM, MP4, MKV) doğrudan kayıpsız akış kopyalama (stream copy / remux) yapılır.
-  - "MP4 olarak kaydet" seçildiğinde, gerekiyorsa kullanıcıya açık uyarı gösterilir.
-- **Modüler Platform Tanıyıcı**:
-  - YouTube, TikTok, Instagram, X (Twitter) bağlantılarını tanır; TikTok ve Instagram'ın yerel birleşik H.264+AAC akışlarını doğrudan kopyalar.
-- **Güvenli ve Sağlam Mimari**:
-  - yt-dlp doğrudan Python kütüphane API'siyle çağrılır (komut satırı enjeksiyonu riski yoktur).
-  - PyPI ve GitHub API entegrasyonuyla yt-dlp motorunun ve uygulamanın güncelliğini sistem tepsisinden tek tıkla denetleme.
-  - Dosya adları Windows dosya sistemi yasak karakterlerine (`< > : " / \ | ? *`) ve `MAX_PATH` sınırına karşı temizlenir.
-  - Windows adlandırılmış Mutex ile tekil örnek garantisi (aynı anda çift kopya açılmaz).
+- **Ultra Hafif ve Sıfır Runtime (< 1 MB)**:
+  - Harici DLL bağımlılığı yoktur; doğrudan Windows yerel sistem kütüphanelerine statik olarak bağlanır.
+  - Hızlı açılış, sıfır gecikme ve minimum kaynak kullanımı (RAM: ~12 MB).
+
+- **Modern ve Sade Win32 Arayüzü**:
+  - Windows klasik pastel/sistem temasında net ve sade kontroller (`Segoe UI` yazı tipi).
+  - Yalnızca yatayda genişleyebilen (width-only resizable, sabit yükseklikli) ergonomik pencere düzeni.
+  - Per-Monitor V2 DPI farkındalığı sayesinde 4K ve yüksek DPI ekranlarda pikseli bozulmayan dinamik ölçekleme.
+
+- **Tek Tıkla Otomatik İndirme (Auto-Fetch & Download)**:
+  - Bağlantı yapıştırıldığında arka planda otomatik bilgi sorgulama.
+  - Bilgi henüz çekilmemiş olsa bile "İNDİR" butonuna basıldığında önce otomatik bilgi çekip ardından indirmeyi başlatma.
+  - Doğrudan medya dosyaları (`.mp4`, `.webm` vb.) ve tekil video/ses akışları için kusursuz geri dönüş (fallback) desteği.
+
+- **Klavye ve Erişilebilirlik Odaklı**:
+  - `Tab` / `Shift+Tab` ile tüm kontroller arasında eksiksiz gezinme (`WS_TABSTOP` ve `IsDialogMessageW`).
+  - `Enter`: Herhangi bir kontroldeyken indirme işlemini tetikler.
+  - `Esc`: Devam eden işlemi iptal eder veya pencereyi kapatır.
+
+- **Akıllı Süreç Yönetimi (Job Object)**:
+  - İptal durumunda yetim `yt-dlp` veya `ffmpeg` süreçleri kalmaz; Windows Job Object sınırları ile tüm süreç ağacı anında ve temiz şekilde sonlandırılır.
+
+- **Kayıt Defteri & Klasör Kalıcılığı**:
+  - Seçilen indirme dizini `HKCU\Software\ff-dlp-viewer\DownloadDir` altında saklanır ve bir sonraki açılışta korunur.
+  - Modern COM `IFileOpenDialog` ile klasör seçimi.
+
+- **Tekil Örnek (Single Instance) ve Komut Satırı Entegrasyonu**:
+  - Named Mutex (`Local\ff-dlp-viewer-light`) ile aynı anda birden fazla kopya açılmaz.
+  - `--url <URL>` veya `--url=URL` ile ikinci bir örnek çağrıldığında bağlantı açık olan pencereye `WM_COPYDATA` ile aktarılır ve pencere öne getirilir.
 
 ---
 
-## Son Kullanıcı Kurulumu
+## Klavye Kısayolları
 
-1. [GitHub Releases](https://github.com/haluked/yt-mini/releases) sayfasından en son `yt-mini-Setup-v2.0.0.exe` dosyasını indirin.
-2. Kurulumu çalıştırın.
-   - Kurulum `%LOCALAPPDATA%\Programs\yt-mini` dizinine yapılır; **yönetici izni (UAC) gerektirmez**.
-   - Python, pip veya ffmpeg kurmanıza gerek yoktur; tüm bileşenler paketin içinde hazır gelir.
-   - İsteğe bağlı olarak "Windows açıldığında sistem tepsisinde otomatik başlat" seçeneğini işaretleyebilirsiniz.
-
-### Windows SmartScreen Uyarısı Hakkında
-> [!NOTE]
-> Kurulumu çalıştırdığınızda Windows SmartScreen *"Windows kişisel bilgisayarınızı korudu"* uyarısı verebilir.
-> **Nedeni**: Yıllık yüzlerce dolar maliyeti olan kurumsal dijital kod imzalama sertifikası (Code Signing Certificate) bulunmayan tüm bağımsız açık kaynaklı yazılımlar, Windows tarafından "bilinmeyen yayımcı" olarak sınıflandırılır.
-> **Çözüm**: *"Ek bilgi"* linkine tıklayıp *"Yine de çalıştır"* butonuna basarak güvenle kurabilirsiniz. Kaynak kodlar burada tamamen açıktır ve her sürümün SHA-256 sağlama özeti GitHub Releases sayfasında yayınlanır.
+| Kısayol | Eylem |
+|---|---|
+| `Enter` | İndirmeyi başlatır (bilgi çekilmemişse önce bilgiyi alıp indirir). |
+| `Esc` | Aktif bir işlem varsa iptal eder, yoksa pencereyi kapatır. |
+| `Tab` / `Shift+Tab` | Arayüz kontrolleri arasında sırayla gezinir. |
+| `Space` | Odaklanan butona tıklar veya radyo/onay kutusunu değiştirir. |
 
 ---
 
-## Geliştirici Kılavuzu
+## Komut Satırı Kullanımı
 
-### 1. Ortam Kurulumu
-Depoyu klonlayıp geliştirici ortamını tek komutla kurabilirsiniz:
 ```cmd
-git clone https://github.com/haluked/yt-mini.git
-cd yt-mini
-dev_setup.bat
-```
-*(veya manuel olarak:)*
-```cmd
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+# Grafik arayüzü normal başlatır
+ff-dlp-viewer.exe
+
+# Belirtilen bağlantıyı açıp otomatik olarak bilgilerini getirir
+ff-dlp-viewer.exe --url "https://www.youtube.com/watch?v=..."
+
+# Kısa yardım ve sürüm pencereleri
+ff-dlp-viewer.exe --help
+ff-dlp-viewer.exe --version
 ```
 
-### 2. Testleri Çalıştırma
-```cmd
-python -m pytest tests/
-```
-*44 adet birim testi platform tespiti, sanitization, saf kodek seçimi, yt-dlp & tray güncelleyici ve arayüz başlatmasını doğrular.*
+---
 
-### 3. Uygulamayı Kaynaktan Başlatma
-```cmd
-python main.py
-```
+## Geliştirici & Derleme Kılavuzu
 
-### 4. Tek Komutla Paketleme ve Installer Üretimi
+### Gereksinimler
+- **MinGW-w64 GCC** (C11 destekli)
+- **windres** (GNU Resource Compiler)
+
+### 1. Derleme
+Projeyi tek komutla derlemek için:
 ```cmd
 build.bat
 ```
-veya
+
+Veya doğrudan derleyici komutu:
 ```cmd
-python installer/build.py
+windres res\res.rc -O coff -o res.o
+gcc -O3 -s -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -static -mwindows -municode -Isrc src\main.c src\ui.c src\engine.c src\codec_selector.c src\detector.c src\sanitization.c src\cjson.c res.o -o dist\ff-dlp-viewer.exe -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32
 ```
-*Bu komut PyInstaller ile bağımsız uygulamayı derler, `bin/ffmpeg.exe` dosyasını hazırlar, Inno Setup ile `dist/yt-mini-Setup-v2.0.0.exe` dosyasını ve `.sha256` özetini üretir.*
 
----
-
-## Proje Klasör Yapısı
-
-```
-yt-mini/
-├── core/                       # Çekirdek iş mantığı
-│   ├── detector.py             # URL platform tespiti
-│   ├── codec_selector.py       # Saf fonksiyonel kodek/konteyner seçici
-│   ├── downloader.py           # yt-dlp Python API indirme motoru
-│   ├── sanitization.py         # Dosya adı ve yol güvenlik filtreleri
-│   └── updater.py              # GitHub Releases ve PyPI yt-dlp API güncelleyici & SHA-256 doğrulayıcı
-├── ui/                         # Piksel kullanıcı arayüzü
-│   ├── app_window.py           # Ana Tkinter penceresi
-│   ├── theme.py                # Kağıt/mürekkep renk paleti ve tipografi
-│   ├── widgets.py              # Buton, giriş, çip, onay kutusu, ilerleme çubuğu
-│   ├── dialogs.py              # Hata ve onay pencereleri
-│   └── strings.py              # Merkezi Türkçe metinler
-├── tray/                       # Sistem tepsisi yönetimi
-│   └── tray_manager.py         # pystray entegrasyonu ve piksel tepsi ikonu
-├── tests/                      # Birim testleri ve mock format JSON'ları
-├── installer/                  # Inno Setup (.iss) ve derleme scriptleri
-├── main.py                     # Uygulama başlangıç noktası (Mutex & Döngü)
-├── PRODUCT.md                  # Ürün şartnamesi
-├── DESIGN.md                   # Tasarım şartnamesi
-├── ARCHITECTURE.md             # Mimari şartnamesi
-├── LICENSE                     # MIT ve üçüncü taraf lisansları
-└── requirements.txt            # Sabit bağımlılık listesi
+### 2. Birim Testleri
+Çekirdek algoritmaları (platform dedektörü, dosya adı sanitizasyonu, kodek seçimi ve doğrudan medya yönetimi) test etmek için:
+```cmd
+gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c tests/test_core.c -o tests/test_core.exe
+.\tests\test_core.exe
 ```
 
 ---

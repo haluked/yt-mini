@@ -25,6 +25,8 @@ htmlcov/
 # Application binaries & caches
 bin/ffmpeg.exe
 bin/ffprobe.exe
+bin/yt-dlp.exe
+bin/*.exe
 *.log
 
 # C/C++ Object Files & Executables

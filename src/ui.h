@@ -8,6 +8,8 @@
 #define WM_USER_DOWNLOAD_TICK (WM_USER + 102)
 #define WM_USER_TRAY_ICON     (WM_USER + 103)
 
-int ui_run(HINSTANCE hInstance, int nCmdShow);
+#define UI_WINDOW_CLASS L"FfDlpViewerLightWindow"
+
+int ui_run(HINSTANCE hInstance, int nCmdShow, const wchar_t *initial_url);
 
 #endif /* UI_H */
