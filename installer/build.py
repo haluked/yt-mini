@@ -78,6 +78,49 @@ def build_native_c():
     return exe_path
 
 
+def build_portable_package() -> Path:
+    """Tüm bağımlılıkları (ff-dlp-viewer.exe, ffmpeg.exe, yt-dlp.exe) içeren bağımsız taşınabilir paketi üretir."""
+    print_step("3/5: Taşınabilir Bağımsız Paket (Portable Bundle) Üretiliyor")
+
+    bundle_dir = DIST_DIR / "ff-dlp-viewer-v2.0-beta-portable"
+    if bundle_dir.exists():
+        shutil.rmtree(bundle_dir)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Ana uygulama
+    shutil.copy2(DIST_DIR / "ff-dlp-viewer.exe", bundle_dir / "ff-dlp-viewer.exe")
+
+    # 2. Harici ikililer (bin/)
+    bundle_bin = bundle_dir / "bin"
+    bundle_bin.mkdir(exist_ok=True)
+    for b in ["ffmpeg.exe", "yt-dlp.exe"]:
+        src = BIN_DIR / b
+        if src.is_file():
+            shutil.copy2(src, bundle_bin / b)
+            print(f"Pakete eklendi: bin/{b}")
+        else:
+            print(f"[UYARI] {b} bulunamadı!")
+
+    # 3. Kolay kullanım kılavuzu
+    readme_txt = bundle_dir / "KULLANIM.txt"
+    readme_txt.write_text(
+        "ff-dlp-viewer v2.0-beta (Taşınabilir Sürüm)\n"
+        "===========================================\n\n"
+        "Bu paket tüm bileşenleri (ff-dlp-viewer, yt-dlp, ffmpeg) tek parça olarak içerir.\n"
+        "Python, pip veya harici bir kurulum yapmanıza gerek yoktur.\n\n"
+        "Çalıştırmak için:\n"
+        "  - 'ff-dlp-viewer.exe' dosyasına çift tıklayın.\n\n"
+        "İyi kullanımlar!\n",
+        encoding="utf-8"
+    )
+
+    # 4. ZIP arşivi oluştur
+    zip_path = DIST_DIR / "ff-dlp-viewer-v2.0-beta-portable"
+    archive_file = Path(shutil.make_archive(str(zip_path), "zip", root_dir=str(bundle_dir)))
+    print(f"[BAŞARILI] Taşınabilir paket hazırlandı: {archive_file}")
+    return archive_file
+
+
 def find_iscc() -> Path | None:
     """Inno Setup derleyicisini (ISCC.exe) arar."""
     iscc_path = shutil.which("ISCC.exe") or shutil.which("iscc")
@@ -97,7 +140,7 @@ def find_iscc() -> Path | None:
 
 def build_inno_setup():
     """Inno Setup ile Setup.exe üretir."""
-    print_step("3/4: Inno Setup ile Setup.exe Üretiliyor")
+    print_step("4/5: Inno Setup ile Setup.exe Üretiliyor")
 
     iscc = find_iscc()
     if not iscc:
@@ -122,6 +165,7 @@ def build_inno_setup():
 
 def compute_sha256(filepath: Path) -> str:
     """Dosyanın SHA-256 özetini hesaplar ve yanına kaydeder."""
+    print_step(f"5/5: SHA-256 Bütünlük Özeti ({filepath.name})")
     sha256 = hashlib.sha256()
     with open(filepath, "rb") as f:
         while chunk := f.read(65536):
@@ -140,6 +184,10 @@ def main():
     ensure_binaries()
     exe_path = build_native_c()
     compute_sha256(exe_path)
+
+    portable_zip = build_portable_package()
+    if portable_zip.is_file():
+        compute_sha256(portable_zip)
 
     setup_exe = build_inno_setup()
     if setup_exe and setup_exe.is_file():
