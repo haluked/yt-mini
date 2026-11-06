@@ -827,6 +827,7 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     char ch;
     DWORD bytes_read = 0;
     char last_error[768] = "";
+    char last_destination[MAX_PATH * 2] = "";
 
     double last_percent = 0.0;
     double last_speed = 0.0;
@@ -844,6 +845,28 @@ static DWORD WINAPI download_thread_main(LPVOID param)
                 if (strncmp(trimmed, "ERROR:", 6) == 0) {
                     strncpy(last_error, trimmed, sizeof(last_error) - 1);
                     last_error[sizeof(last_error) - 1] = '\0';
+                } else if (strncmp(trimmed, "[download] Destination: ", 24) == 0) {
+                    strncpy(last_destination, trimmed + 24, sizeof(last_destination) - 1);
+                    last_destination[sizeof(last_destination) - 1] = '\0';
+                } else if (strstr(trimmed, "Merging formats into \"") != NULL) {
+                    const char *p_merge = strstr(trimmed, "Merging formats into \"") + 22;
+                    strncpy(last_destination, p_merge, sizeof(last_destination) - 1);
+                    last_destination[sizeof(last_destination) - 1] = '\0';
+                    char *q = strrchr(last_destination, '"');
+                    if (q) *q = '\0';
+                } else if (strncmp(trimmed, "[ExtractAudio] Destination: ", 28) == 0) {
+                    strncpy(last_destination, trimmed + 28, sizeof(last_destination) - 1);
+                    last_destination[sizeof(last_destination) - 1] = '\0';
+                } else if (strstr(trimmed, "has already been downloaded") != NULL &&
+                           strncmp(trimmed, "[download] ", 11) == 0) {
+                    const char *p_start = trimmed + 11;
+                    const char *p_end = strstr(p_start, "has already been downloaded");
+                    int plen = (int)(p_end - p_start);
+                    while (plen > 0 && p_start[plen - 1] == ' ') plen--;
+                    if (plen > 0 && plen < (int)sizeof(last_destination)) {
+                        strncpy(last_destination, p_start, plen);
+                        last_destination[plen] = '\0';
+                    }
                 } else if (strchr(line_buf, '|')) {
                     parse_progress_line(line_buf, &last_percent, &last_speed, &last_eta, &last_downloaded, &last_total);
                     if (p->callback) {
@@ -887,7 +910,12 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         if (was_cancelled) {
             p->callback(L"cancelled", 0, 0, 0, 0, 0, L"", L"İndirme kullanıcı tarafından iptal edildi.", p->user_data);
         } else if (exit_code == 0) {
-            p->callback(L"finished", 100.0, 0, 0, last_total, last_total, L"", NULL, p->user_data);
+            wchar_t wide_dest[MAX_PATH] = L"";
+            if (last_destination[0] != '\0') {
+                MultiByteToWideChar(CP_UTF8, 0, last_destination, -1, wide_dest, MAX_PATH - 1);
+                wide_dest[MAX_PATH - 1] = L'\0';
+            }
+            p->callback(L"finished", 100.0, 0, 0, last_total, last_total, wide_dest, NULL, p->user_data);
         } else {
             wchar_t detail[512];
             wchar_t message[768] = L"İndirme sırasında bir hata oluştu.";

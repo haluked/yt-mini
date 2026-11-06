@@ -33,7 +33,7 @@
 #define IDC_STATIC_STATUS     1015
 #define IDC_BTN_DOWNLOAD      1016
 #define IDC_BTN_CANCEL        1017
-#define IDC_BTN_OPEN_FOLDER   1018
+#define IDC_BTN_OPEN_LOCATION 1018
 #define IDC_BTN_CHOOSE_FOLDER 1019
 #define IDC_STATIC_FOLDER     1020
 
@@ -41,7 +41,7 @@
 #define ID_TRAY_EXIT          2002
 
 #define BASE_CLIENT_W         646
-#define BASE_CLIENT_H         515
+#define BASE_CLIENT_H         485
 #define BASE_MIN_CLIENT_W     620
 
 #define APP_WINDOW_STYLE      (WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX)
@@ -67,7 +67,7 @@ static HWND g_hStaticStatus = NULL;
 static HWND g_hStaticFolder = NULL;
 static HWND g_hBtnDownload = NULL;
 static HWND g_hBtnCancel = NULL;
-static HWND g_hBtnOpenFolder = NULL;
+static HWND g_hBtnOpenLocation = NULL;
 static HWND g_hBtnChooseFolder = NULL;
 
 static HFONT g_fontTitle = NULL;
@@ -77,6 +77,7 @@ static HFONT g_fontSmall = NULL;
 
 static NOTIFYICONDATAW g_nid;
 static wchar_t g_download_dir[MAX_PATH];
+static wchar_t g_last_downloaded_file[MAX_PATH] = L"";
 static MediaMetadata g_current_meta;
 static int g_has_meta = 0;
 static int g_is_fetching = 0;
@@ -95,6 +96,12 @@ static int g_last_tray_percent = -1;
 
 static WNDPROC g_oldEditProc = NULL;
 
+static int file_exists(const wchar_t *path)
+{
+    DWORD attr = GetFileAttributesW(path);
+    return (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY));
+}
+
 typedef struct {
     int success;
     MediaMetadata meta;
@@ -108,7 +115,7 @@ typedef struct {
     int eta;
     long long downloaded;
     long long total;
-    wchar_t filename[128];
+    wchar_t filename[MAX_PATH];
     wchar_t error_msg[256];
 } DownloadTickMsg;
 
@@ -270,7 +277,7 @@ static void update_folder_label(void)
 {
     if (!g_hStaticFolder) return;
     wchar_t label[MAX_PATH + 32];
-    _snwprintf(label, MAX_PATH + 31, L"Klasör: %ls", g_download_dir);
+    _snwprintf(label, MAX_PATH + 31, L"📁 %ls", g_download_dir);
     label[MAX_PATH + 31] = L'\0';
     SetWindowTextW(g_hStaticFolder, label);
 }
@@ -319,7 +326,7 @@ static void apply_control_fonts(void)
     SendMessageW(g_hStaticFolder, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
     SendMessageW(g_hBtnDownload, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
     SendMessageW(g_hBtnCancel, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-    SendMessageW(g_hBtnOpenFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+    SendMessageW(g_hBtnOpenLocation, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
     SendMessageW(g_hBtnChooseFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 }
 
@@ -353,33 +360,38 @@ static void layout_controls(void)
     SetWindowPos(g_hBtnFetch, NULL, fetch_x, S(67), fetch_w, S(27), SWP_NOZORDER);
 
     /* Grup 2: medya ve format */
-    SetWindowPos(g_hGrpMedia, NULL, x20, S(118), inner_w, S(205), SWP_NOZORDER);
-    SetWindowPos(g_hStaticTitle, NULL, x32, S(142), content_w, S(20), SWP_NOZORDER);
-    SetWindowPos(g_hStaticMeta, NULL, x32, S(164), content_w, S(18), SWP_NOZORDER);
-    SetWindowPos(g_hRadioVideo, NULL, x32, S(192), S(150), S(22), SWP_NOZORDER);
-    SetWindowPos(g_hRadioAudio, NULL, S(195), S(192), S(160), S(22), SWP_NOZORDER);
-    SetWindowPos(g_hComboRes, NULL, x32, S(222), S(220), S(200), SWP_NOZORDER);
-    SetWindowPos(g_hChkForceMp4, NULL, S(265), S(223), S(180), S(22), SWP_NOZORDER);
-    SetWindowPos(g_hComboAudio, NULL, x32, S(222), S(220), S(200), SWP_NOZORDER);
-    SetWindowPos(g_hStaticReason, NULL, x32, S(256), content_w, S(52), SWP_NOZORDER);
+    SetWindowPos(g_hGrpMedia, NULL, x20, S(118), inner_w, S(212), SWP_NOZORDER);
+    SetWindowPos(g_hStaticTitle, NULL, x32, S(140), content_w, S(20), SWP_NOZORDER);
+    SetWindowPos(g_hStaticMeta, NULL, x32, S(162), content_w, S(18), SWP_NOZORDER);
+    SetWindowPos(g_hRadioVideo, NULL, x32, S(188), S(150), S(22), SWP_NOZORDER);
+    SetWindowPos(g_hRadioAudio, NULL, S(195), S(188), S(160), S(22), SWP_NOZORDER);
+    SetWindowPos(g_hComboRes, NULL, x32, S(216), S(220), S(200), SWP_NOZORDER);
+    SetWindowPos(g_hChkForceMp4, NULL, S(265), S(217), S(180), S(22), SWP_NOZORDER);
+    SetWindowPos(g_hComboAudio, NULL, x32, S(216), S(220), S(200), SWP_NOZORDER);
+    SetWindowPos(g_hStaticReason, NULL, x32, S(248), content_w, S(34), SWP_NOZORDER);
+
+    int choose_btn_w = S(110);
+    int choose_btn_h = S(26);
+    int folder_x = x32 + choose_btn_w + S(10);
+    int folder_w = content_w - choose_btn_w - S(10);
+    if (folder_w < S(100)) folder_w = S(100);
+
+    SetWindowPos(g_hBtnChooseFolder, NULL, x32, S(288), choose_btn_w, choose_btn_h, SWP_NOZORDER);
+    SetWindowPos(g_hStaticFolder, NULL, folder_x, S(292), folder_w, S(20), SWP_NOZORDER);
 
     /* Grup 3: indirme durumu */
-    SetWindowPos(g_hGrpDownload, NULL, x20, S(330), inner_w, S(165), SWP_NOZORDER);
-    SetWindowPos(g_hProgressBar, NULL, x32, S(352), content_w, S(20), SWP_NOZORDER);
-    SetWindowPos(g_hStaticStatus, NULL, x32, S(378), content_w, S(20), SWP_NOZORDER);
-    SetWindowPos(g_hStaticFolder, NULL, x32, S(400), content_w, S(18), SWP_NOZORDER);
+    SetWindowPos(g_hGrpDownload, NULL, x20, S(338), inner_w, S(130), SWP_NOZORDER);
+    SetWindowPos(g_hProgressBar, NULL, x32, S(360), content_w, S(20), SWP_NOZORDER);
+    SetWindowPos(g_hStaticStatus, NULL, x32, S(386), content_w, S(20), SWP_NOZORDER);
 
-    int btn_y = S(426);
+    int btn_y = S(416);
     int btn_h = S(36);
-    int choose_w = S(100);
-    int open_w = S(110);
-    int choose_x = cw - x32 - choose_w;
-    int open_x = choose_x - gap - open_w;
+    int open_w = S(170);
+    int open_x = cw - x32 - open_w;
 
     SetWindowPos(g_hBtnDownload, NULL, x32, btn_y, S(120), btn_h, SWP_NOZORDER);
     SetWindowPos(g_hBtnCancel, NULL, S(160), btn_y, S(90), btn_h, SWP_NOZORDER);
-    SetWindowPos(g_hBtnOpenFolder, NULL, open_x, btn_y, open_w, btn_h, SWP_NOZORDER);
-    SetWindowPos(g_hBtnChooseFolder, NULL, choose_x, btn_y, choose_w, btn_h, SWP_NOZORDER);
+    SetWindowPos(g_hBtnOpenLocation, NULL, open_x, btn_y, open_w, btn_h, SWP_NOZORDER);
 
     InvalidateRect(g_hWnd, NULL, TRUE);
 }
@@ -428,8 +440,8 @@ static void on_download_tick_callback(
     msg->downloaded = downloaded;
     msg->total = total;
     if (filename) {
-        wcsncpy(msg->filename, filename, 127);
-        msg->filename[127] = L'\0';
+        wcsncpy(msg->filename, filename, MAX_PATH - 1);
+        msg->filename[MAX_PATH - 1] = L'\0';
     }
     if (err) {
         wcsncpy(msg->error_msg, err, 255);
@@ -482,6 +494,7 @@ static void trigger_fetch(void)
     g_is_fetching = 1;
     g_has_meta = 0;
     g_selection_valid = 0;
+    if (g_hBtnOpenLocation) ShowWindow(g_hBtnOpenLocation, SW_HIDE);
     wcsncpy(g_last_fetched_url, url, 1023);
     g_last_fetched_url[1023] = L'\0';
 
@@ -614,6 +627,8 @@ static void trigger_download(void)
     }
 
     g_is_downloading = 1;
+    if (g_hBtnOpenLocation) ShowWindow(g_hBtnOpenLocation, SW_HIDE);
+    g_last_downloaded_file[0] = L'\0';
     EnableWindow(g_hBtnDownload, FALSE);
     EnableWindow(g_hBtnCancel, TRUE);
     SendMessageW(g_hProgressBar, PBM_SETPOS, 0, 0);
@@ -778,50 +793,51 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
             g_hStaticReason = CreateWindowExW(0, L"STATIC", L"",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-                32, 256, 565, 52, hWnd, (HMENU)IDC_STATIC_REASON, hInst, NULL);
+                32, 248, 565, 34, hWnd, (HMENU)IDC_STATIC_REASON, hInst, NULL);
             SendMessageW(g_hStaticReason, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
+
+            g_hBtnChooseFolder = CreateWindowExW(0, L"BUTTON", L"Konum Seç",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                32, 288, 110, 26, hWnd, (HMENU)IDC_BTN_CHOOSE_FOLDER, hInst, NULL);
+            SendMessageW(g_hBtnChooseFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+
+            g_hStaticFolder = CreateWindowExW(0, L"STATIC", L"",
+                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_PATHELLIPSIS | SS_NOPREFIX | SS_NOTIFY,
+                150, 292, 440, 20, hWnd, (HMENU)IDC_STATIC_FOLDER, hInst, NULL);
+            SendMessageW(g_hStaticFolder, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
             /* =========================================================
                GROUP 3: İNDİRME DURUMU & EYLEMLER
                ========================================================= */
             g_hGrpDownload = CreateWindowExW(0, L"BUTTON", L" İndirme Durumu ",
                 WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-                20, 330, 590, 165, hWnd, (HMENU)IDC_GRP_DOWNLOAD, hInst, NULL);
+                20, 338, 590, 130, hWnd, (HMENU)IDC_GRP_DOWNLOAD, hInst, NULL);
             SendMessageW(g_hGrpDownload, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             g_hProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, NULL,
                 WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-                32, 352, 565, 20, hWnd, (HMENU)IDC_PROGRESS, hInst, NULL);
+                32, 360, 565, 20, hWnd, (HMENU)IDC_PROGRESS, hInst, NULL);
 
             g_hStaticStatus = CreateWindowExW(0, L"STATIC", L"Hazır",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-                32, 378, 565, 20, hWnd, (HMENU)IDC_STATIC_STATUS, hInst, NULL);
+                32, 386, 565, 20, hWnd, (HMENU)IDC_STATIC_STATUS, hInst, NULL);
             SendMessageW(g_hStaticStatus, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-
-            g_hStaticFolder = CreateWindowExW(0, L"STATIC", L"",
-                WS_CHILD | WS_VISIBLE | SS_LEFT | SS_PATHELLIPSIS | SS_NOPREFIX,
-                32, 400, 565, 18, hWnd, (HMENU)IDC_STATIC_FOLDER, hInst, NULL);
-            SendMessageW(g_hStaticFolder, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
             g_hBtnDownload = CreateWindowExW(0, L"BUTTON", L"İNDİR",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-                32, 426, 120, 36, hWnd, (HMENU)IDC_BTN_DOWNLOAD, hInst, NULL);
+                32, 416, 120, 36, hWnd, (HMENU)IDC_BTN_DOWNLOAD, hInst, NULL);
             SendMessageW(g_hBtnDownload, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
 
             g_hBtnCancel = CreateWindowExW(0, L"BUTTON", L"İptal",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | WS_DISABLED,
-                160, 426, 90, 36, hWnd, (HMENU)IDC_BTN_CANCEL, hInst, NULL);
+                160, 416, 90, 36, hWnd, (HMENU)IDC_BTN_CANCEL, hInst, NULL);
             SendMessageW(g_hBtnCancel, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hBtnOpenFolder = CreateWindowExW(0, L"BUTTON", L"Klasörü Aç",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                400, 426, 110, 36, hWnd, (HMENU)IDC_BTN_OPEN_FOLDER, hInst, NULL);
-            SendMessageW(g_hBtnOpenFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-
-            g_hBtnChooseFolder = CreateWindowExW(0, L"BUTTON", L"Klasör Seç",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                518, 426, 100, 36, hWnd, (HMENU)IDC_BTN_CHOOSE_FOLDER, hInst, NULL);
-            SendMessageW(g_hBtnChooseFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+            g_hBtnOpenLocation = CreateWindowExW(0, L"BUTTON", L"Dosya Konumunu Aç",
+                WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
+                438, 416, 170, 36, hWnd, (HMENU)IDC_BTN_OPEN_LOCATION, hInst, NULL);
+            SendMessageW(g_hBtnOpenLocation, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+            ShowWindow(g_hBtnOpenLocation, SW_HIDE);
 
             update_folder_label();
             apply_control_fonts();
@@ -860,9 +876,23 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             return 0;
         }
 
+        case WM_SETCURSOR: {
+            HWND hCursorWnd = (HWND)wParam;
+            if (hCursorWnd == g_hStaticFolder) {
+                SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_HAND));
+                return TRUE;
+            }
+            break;
+        }
+
         case WM_CTLCOLORSTATIC: {
             HDC hdc = (HDC)wParam;
+            HWND hCtl = (HWND)lParam;
             SetBkMode(hdc, TRANSPARENT);
+            if (hCtl == g_hStaticFolder) {
+                SetTextColor(hdc, RGB(0, 102, 204));
+                return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+            }
             SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
             return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
         }
@@ -886,11 +916,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
             SelectObject(hdc, g_fontTitle);
             TextOutW(hdc, S(22), S(14), L"ff-dlp-viewer", 13);
-
-            SelectObject(hdc, g_fontSmall);
-            SetTextColor(hdc, RGB(110, 110, 110));
-            TextOutW(hdc, S(150), S(18), L"Hafif Medya İndirici (Native < 1 MB)",
-                     (int)wcslen(L"Hafif Medya İndirici (Native < 1 MB)"));
 
             SelectObject(hdc, g_fontBold);
             const wchar_t *badge = g_has_meta ? g_current_meta.platform.badge_label : L"WEB";
@@ -930,10 +955,19 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 engine_cancel();
                 g_auto_download_after_fetch = 0;
                 SetWindowTextW(g_hStaticStatus, L"İptal ediliyor...");
-            } else if (wmId == IDC_BTN_OPEN_FOLDER) {
-                ShellExecuteW(NULL, L"open", g_download_dir, NULL, NULL, SW_SHOWNORMAL);
+            } else if (wmId == IDC_BTN_OPEN_LOCATION) {
+                if (g_last_downloaded_file[0] != L'\0' && file_exists(g_last_downloaded_file)) {
+                    wchar_t arg[MAX_PATH + 32];
+                    _snwprintf(arg, MAX_PATH + 31, L"/select,\"%ls\"", g_last_downloaded_file);
+                    arg[MAX_PATH + 31] = L'\0';
+                    ShellExecuteW(NULL, L"open", L"explorer.exe", arg, NULL, SW_SHOWNORMAL);
+                } else {
+                    ShellExecuteW(NULL, L"open", g_download_dir, NULL, NULL, SW_SHOWNORMAL);
+                }
             } else if (wmId == IDC_BTN_CHOOSE_FOLDER) {
                 choose_folder_com(hWnd);
+            } else if (wmId == IDC_STATIC_FOLDER && (wmEvent == STN_CLICKED || wmEvent == STN_DBLCLK)) {
+                ShellExecuteW(NULL, L"open", g_download_dir, NULL, NULL, SW_SHOWNORMAL);
             } else if (wmId == IDC_RADIO_VIDEO || wmId == IDC_RADIO_AUDIO ||
                        wmId == IDC_CHK_FORCE_MP4 ||
                        (wmId == IDC_COMBO_RES && wmEvent == CBN_SELCHANGE) ||
@@ -1064,6 +1098,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 SetWindowTextW(g_hStaticStatus, L"[Tamamlandı] Dosya başarıyla kaydedildi.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
+                if (msg->filename[0] != L'\0') {
+                    wcsncpy(g_last_downloaded_file, msg->filename, MAX_PATH - 1);
+                    g_last_downloaded_file[MAX_PATH - 1] = L'\0';
+                }
+                if (g_hBtnOpenLocation) {
+                    ShowWindow(g_hBtnOpenLocation, SW_SHOW);
+                    EnableWindow(g_hBtnOpenLocation, TRUE);
+                }
                 tray_set_tip(L"ff-dlp-viewer - Hazır");
                 tray_balloon(L"İndirme tamamlandı", L"Dosya seçilen klasöre kaydedildi.");
             } else if (wcscmp(msg->status, L"cancelled") == 0) {
@@ -1072,6 +1114,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 SetWindowTextW(g_hStaticStatus, L"İndirme iptal edildi.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
+                if (g_hBtnOpenLocation) ShowWindow(g_hBtnOpenLocation, SW_HIDE);
                 tray_set_tip(L"ff-dlp-viewer - Hazır");
             } else if (wcscmp(msg->status, L"error") == 0) {
                 g_is_downloading = 0;
@@ -1079,6 +1122,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 SetWindowTextW(g_hStaticStatus, msg->error_msg[0] ? msg->error_msg : L"İndirme hatası.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
+                if (g_hBtnOpenLocation) ShowWindow(g_hBtnOpenLocation, SW_HIDE);
                 tray_set_tip(L"ff-dlp-viewer - Hata");
                 MessageBoxW(hWnd, msg->error_msg[0] ? msg->error_msg : L"İndirme sırasında bir hata oluştu.", L"İndirme Hatası", MB_OK | MB_ICONERROR);
             }
