@@ -3,6 +3,7 @@
 #include "detector.h"
 #include "codec_selector.h"
 #include "sanitization.h"
+#include "bootstrapper.h"
 
 #include <windows.h>
 #include <commctrl.h>
@@ -10,6 +11,13 @@
 #include <shellapi.h>
 #include <wchar.h>
 #include <stdio.h>
+
+#ifndef GET_X_LPARAM
+#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
+#endif
+#ifndef GET_Y_LPARAM
+#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
+#endif
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -39,6 +47,7 @@
 
 #define ID_TRAY_RESTORE       2001
 #define ID_TRAY_EXIT          2002
+#define ID_TRAY_CHECK_UPDATE  2003
 
 #define BASE_CLIENT_W         646
 #define BASE_CLIENT_H         485
@@ -109,6 +118,30 @@ typedef struct {
 } FetchResultMsg;
 
 typedef struct {
+    int success;
+    MediaMetadata meta;
+    wchar_t url[1024];
+    wchar_t error_msg[256];
+} AutoFetchResultMsg;
+
+typedef struct {
+    MediaMetadata meta;
+    wchar_t url[1024];
+    HFONT font_badge;
+    HFONT font_title;
+    HFONT font_small;
+    HFONT font_btn;
+    RECT rc_btn;
+    RECT rc_close;
+    int btn_hover;
+    int close_hover;
+} ToastState;
+
+static ToastState g_toast_state;
+static HWND g_hToastWnd = NULL;
+static wchar_t g_last_clipboard_url[1024] = L"";
+
+typedef struct {
     wchar_t status[32];
     double percent;
     double speed;
@@ -127,6 +160,9 @@ static void create_fonts(void);
 static void apply_control_fonts(void);
 static void update_folder_label(void);
 static void save_download_dir(void);
+static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wchar_t *url);
+static void apply_toast_to_main(ToastState *state, int auto_start_download);
+static void trigger_autofetch(const wchar_t *url);
 
 static int S(int value)
 {
@@ -455,6 +491,39 @@ static void on_download_tick_callback(
     }
 }
 
+static void on_autofetch_callback(int success, const MediaMetadata *meta, const wchar_t *err, void *user_data)
+{
+    AutoFetchResultMsg *msg = (AutoFetchResultMsg*)calloc(1, sizeof(AutoFetchResultMsg));
+    if (!msg) return;
+
+    msg->success = success;
+    if (meta) msg->meta = *meta;
+    if (user_data) {
+        wcsncpy(msg->url, (const wchar_t*)user_data, 1023);
+        msg->url[1023] = L'\0';
+        free(user_data);
+    }
+    if (err) {
+        wcsncpy(msg->error_msg, err, 255);
+        msg->error_msg[255] = L'\0';
+    }
+
+    if (g_hWnd && IsWindow(g_hWnd)) {
+        PostMessageW(g_hWnd, WM_USER_AUTOFETCH_DONE, 0, (LPARAM)msg);
+    } else {
+        free(msg);
+    }
+}
+
+static void trigger_autofetch(const wchar_t *url)
+{
+    if (!url || !url[0]) return;
+    wchar_t *copy_url = _wcsdup(url);
+    if (!engine_fetch_info_async(url, on_autofetch_callback, copy_url)) {
+        if (copy_url) free(copy_url);
+    }
+}
+
 static LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_PASTE) {
@@ -642,6 +711,285 @@ static void trigger_download(void)
     }
 }
 
+static void apply_toast_to_main(ToastState *state, int auto_start_download)
+{
+    if (!state || !g_hWnd) return;
+
+    ShowWindow(g_hWnd, SW_SHOW);
+    ShowWindow(g_hWnd, SW_RESTORE);
+
+    DWORD curThread = GetCurrentThreadId();
+    DWORD foreThread = GetWindowThreadProcessId(GetForegroundWindow(), NULL);
+    if (curThread != foreThread) {
+        AttachThreadInput(curThread, foreThread, TRUE);
+        BringWindowToTop(g_hWnd);
+        SetForegroundWindow(g_hWnd);
+        AttachThreadInput(curThread, foreThread, FALSE);
+    } else {
+        BringWindowToTop(g_hWnd);
+        SetForegroundWindow(g_hWnd);
+    }
+
+    SetWindowTextW(g_hEditUrl, state->url);
+    wcsncpy(g_last_fetched_url, state->url, 1023);
+    g_last_fetched_url[1023] = L'\0';
+
+    g_current_meta = state->meta;
+    g_has_meta = 1;
+
+    SetWindowTextW(g_hStaticTitle, g_current_meta.title);
+
+    wchar_t meta_info[256];
+    _snwprintf(meta_info, 256, L"Süre: %ls | Platform: %ls | Mevcut Akış: %d adet",
+        g_current_meta.duration_str,
+        g_current_meta.platform.display_name,
+        g_current_meta.format_count);
+    SetWindowTextW(g_hStaticMeta, meta_info);
+
+    SendMessageW(g_hComboRes, CB_RESETCONTENT, 0, 0);
+    SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)L"En Yüksek Kalite (Varsayılan)");
+    for (int i = 0; i < g_current_meta.num_resolutions; i++) {
+        wchar_t res_str[64];
+        int h = g_current_meta.available_resolutions[i];
+        if (h >= 2160) _snwprintf(res_str, 64, L"%dp (4K Ultra HD)", h);
+        else if (h >= 1440) _snwprintf(res_str, 64, L"%dp (2K QHD)", h);
+        else if (h >= 1080) _snwprintf(res_str, 64, L"%dp (Full HD)", h);
+        else if (h >= 720) _snwprintf(res_str, 64, L"%dp (HD)", h);
+        else _snwprintf(res_str, 64, L"%dp", h);
+        SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)res_str);
+    }
+    SendMessageW(g_hComboRes, CB_SETCURSEL, 0, 0);
+
+    update_format_selection();
+    InvalidateRect(g_hWnd, NULL, TRUE);
+
+    if (auto_start_download) {
+        trigger_download();
+    } else {
+        SetWindowTextW(g_hStaticStatus, L"Medya hazır. İndirmek için 'İNDİR' butonuna basın.");
+        EnableWindow(g_hBtnDownload, g_selection_valid ? TRUE : FALSE);
+    }
+}
+
+static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg) {
+        case WM_CREATE: {
+            g_toast_state.font_badge = CreateFontW(12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            g_toast_state.font_title = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            g_toast_state.font_small = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            g_toast_state.font_btn = CreateFontW(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+
+            /* 4 saniyelik otomatik kaybolma zamanlayıcısı */
+            SetTimer(hWnd, 1, 4000, NULL);
+            return 0;
+        }
+
+        case WM_TIMER: {
+            if (wParam == 1) {
+                KillTimer(hWnd, 1);
+                DestroyWindow(hWnd);
+            }
+            return 0;
+        }
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hWnd, &ps);
+            RECT rcClient;
+            GetClientRect(hWnd, &rcClient);
+
+            /* Arka plan: Modern temiz kart */
+            HBRUSH bgBrush = CreateSolidBrush(RGB(255, 255, 255));
+            FillRect(hdc, &rcClient, bgBrush);
+            DeleteObject(bgBrush);
+
+            /* İnce kenarlık */
+            HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(220, 226, 235));
+            HGDIOBJ oldPen = SelectObject(hdc, borderPen);
+            HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+            Rectangle(hdc, 0, 0, rcClient.right, rcClient.bottom);
+            SelectObject(hdc, oldPen);
+            SelectObject(hdc, oldBrush);
+            DeleteObject(borderPen);
+
+            SetBkMode(hdc, TRANSPARENT);
+
+            /* 1. Kırmızı YouTube Rozeti */
+            RECT rcBadge = { 14, 10, 14 + 80, 10 + 18 };
+            HBRUSH redBrush = CreateSolidBrush(RGB(220, 38, 38));
+            FillRect(hdc, &rcBadge, redBrush);
+            DeleteObject(redBrush);
+
+            SetTextColor(hdc, RGB(255, 255, 255));
+            SelectObject(hdc, g_toast_state.font_badge);
+            DrawTextW(hdc, L"▶ YOUTUBE", -1, &rcBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+            /* Süre bilgisi */
+            if (g_toast_state.meta.duration_str[0] != L'\0') {
+                RECT rcDuration = { 14 + 80 + 8, 10, 14 + 80 + 8 + 80, 10 + 18 };
+                SetTextColor(hdc, RGB(100, 116, 139));
+                SelectObject(hdc, g_toast_state.font_small);
+                DrawTextW(hdc, g_toast_state.meta.duration_str, -1, &rcDuration, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            }
+
+            /* Kapat Butonu (✕) */
+            RECT rcClose = { rcClient.right - 24, 6, rcClient.right - 6, 24 };
+            g_toast_state.rc_close = rcClose;
+            SetTextColor(hdc, g_toast_state.close_hover ? RGB(220, 38, 38) : RGB(148, 163, 184));
+            SelectObject(hdc, g_toast_state.font_badge);
+            DrawTextW(hdc, L"✕", -1, &rcClose, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+            /* 2. Video Başlığı */
+            RECT rcTitle = { 14, 34, rcClient.right - 108, 34 + 36 };
+            SetTextColor(hdc, RGB(30, 41, 59));
+            SelectObject(hdc, g_toast_state.font_title);
+            DrawTextW(hdc, g_toast_state.meta.title, -1, &rcTitle, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
+
+            /* 3. Alt Açıklama */
+            RECT rcSub = { 14, 72, rcClient.right - 108, 72 + 16 };
+            SetTextColor(hdc, RGB(100, 116, 139));
+            SelectObject(hdc, g_toast_state.font_small);
+            DrawTextW(hdc, L"İndirmeye hazır • 4 sn içinde kapanır", -1, &rcSub, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+            /* 4. Yeşil İndir Butonu */
+            RECT rcBtn = { rcClient.right - 98, 34, rcClient.right - 14, 34 + 36 };
+            g_toast_state.rc_btn = rcBtn;
+            COLORREF btnColor = g_toast_state.btn_hover ? RGB(46, 160, 67) : RGB(35, 134, 54);
+            HBRUSH greenBrush = CreateSolidBrush(btnColor);
+            FillRect(hdc, &rcBtn, greenBrush);
+            DeleteObject(greenBrush);
+
+            SetTextColor(hdc, RGB(255, 255, 255));
+            SelectObject(hdc, g_toast_state.font_btn);
+            DrawTextW(hdc, L"⬇ İndir", -1, &rcBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+            EndPaint(hWnd, &ps);
+            return 0;
+        }
+
+        case WM_MOUSEMOVE: {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            int btn_h = PtInRect(&g_toast_state.rc_btn, pt);
+            int close_h = PtInRect(&g_toast_state.rc_close, pt);
+
+            if (btn_h != g_toast_state.btn_hover) {
+                g_toast_state.btn_hover = btn_h;
+                InvalidateRect(hWnd, &g_toast_state.rc_btn, FALSE);
+            }
+            if (close_h != g_toast_state.close_hover) {
+                g_toast_state.close_hover = close_h;
+                InvalidateRect(hWnd, &g_toast_state.rc_close, FALSE);
+            }
+
+            TRACKMOUSEEVENT tme;
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hWnd;
+            TrackMouseEvent(&tme);
+            return 0;
+        }
+
+        case WM_MOUSELEAVE: {
+            if (g_toast_state.btn_hover) {
+                g_toast_state.btn_hover = 0;
+                InvalidateRect(hWnd, &g_toast_state.rc_btn, FALSE);
+            }
+            if (g_toast_state.close_hover) {
+                g_toast_state.close_hover = 0;
+                InvalidateRect(hWnd, &g_toast_state.rc_close, FALSE);
+            }
+            return 0;
+        }
+
+        case WM_SETCURSOR: {
+            SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_HAND));
+            return TRUE;
+        }
+
+        case WM_LBUTTONUP: {
+            POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            if (PtInRect(&g_toast_state.rc_close, pt)) {
+                DestroyWindow(hWnd);
+            } else if (PtInRect(&g_toast_state.rc_btn, pt)) {
+                apply_toast_to_main(&g_toast_state, 1);
+                DestroyWindow(hWnd);
+            } else {
+                apply_toast_to_main(&g_toast_state, 0);
+                DestroyWindow(hWnd);
+            }
+            return 0;
+        }
+
+        case WM_DESTROY: {
+            if (g_toast_state.font_badge) { DeleteObject(g_toast_state.font_badge); g_toast_state.font_badge = NULL; }
+            if (g_toast_state.font_title) { DeleteObject(g_toast_state.font_title); g_toast_state.font_title = NULL; }
+            if (g_toast_state.font_small) { DeleteObject(g_toast_state.font_small); g_toast_state.font_small = NULL; }
+            if (g_toast_state.font_btn) { DeleteObject(g_toast_state.font_btn); g_toast_state.font_btn = NULL; }
+            g_hToastWnd = NULL;
+            memset(&g_toast_state, 0, sizeof(g_toast_state));
+            return 0;
+        }
+    }
+    return DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wchar_t *url)
+{
+    (void)hMainWnd;
+    if (g_hToastWnd && IsWindow(g_hToastWnd)) {
+        DestroyWindow(g_hToastWnd);
+        g_hToastWnd = NULL;
+    }
+
+    if (!meta || !url) return;
+
+    memset(&g_toast_state, 0, sizeof(g_toast_state));
+    g_toast_state.meta = *meta;
+    wcsncpy(g_toast_state.url, url, 1023);
+    g_toast_state.url[1023] = L'\0';
+
+    HINSTANCE hInst = GetModuleHandleW(NULL);
+    const wchar_t *toastClass = L"FfDlpToastWindow";
+
+    WNDCLASSEXW wc;
+    memset(&wc, 0, sizeof(wc));
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.lpfnWndProc = ToastWndProc;
+    wc.hInstance = hInst;
+    wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_HAND);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = toastClass;
+    wc.style = CS_DROPSHADOW | CS_HREDRAW | CS_VREDRAW;
+    RegisterClassExW(&wc);
+
+    RECT rcWork;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
+
+    int toast_w = 370;
+    int toast_h = 96;
+    int toast_x = rcWork.right - toast_w - 20;
+    int toast_y = rcWork.bottom - toast_h - 20;
+
+    g_hToastWnd = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        toastClass,
+        L"ff-dlp-viewer Bildirim",
+        WS_POPUP | WS_BORDER,
+        toast_x, toast_y, toast_w, toast_h,
+        NULL, NULL, hInst, NULL
+    );
+
+    if (g_hToastWnd) {
+        ShowWindow(g_hToastWnd, SW_SHOWNOACTIVATE);
+        UpdateWindow(g_hToastWnd);
+    }
+}
+
 static void init_tray(HWND hWnd, HINSTANCE hInstance)
 {
     memset(&g_nid, 0, sizeof(NOTIFYICONDATAW));
@@ -688,6 +1036,7 @@ static void show_tray_menu(HWND hWnd)
     GetCursorPos(&pt);
     HMENU hMenu = CreatePopupMenu();
     AppendMenuW(hMenu, MF_STRING, ID_TRAY_RESTORE, L"Göster");
+    AppendMenuW(hMenu, MF_STRING, ID_TRAY_CHECK_UPDATE, L"Güncellemeleri Denetle (yt-dlp)");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Çıkış");
 
@@ -708,6 +1057,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_CREATE: {
             g_hWnd = hWnd;
             DragAcceptFiles(hWnd, TRUE);
+            AddClipboardFormatListener(hWnd);
             g_dpi = query_window_dpi(hWnd);
             update_fixed_metrics();
             create_fonts();
@@ -976,6 +1326,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             } else if (wmId == ID_TRAY_RESTORE) {
                 ShowWindow(hWnd, SW_RESTORE);
                 SetForegroundWindow(hWnd);
+            } else if (wmId == ID_TRAY_CHECK_UPDATE) {
+                bootstrapper_update_ytdlp(hWnd);
             } else if (wmId == ID_TRAY_EXIT) {
                 engine_cancel();
                 DestroyWindow(hWnd);
@@ -1141,6 +1493,77 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             return 0;
         }
 
+        case WM_CLIPBOARDUPDATE: {
+            if (g_is_downloading || g_is_fetching || engine_is_busy()) break;
+
+            wchar_t clip_text[1024] = L"";
+            int opened = 0;
+            for (int r = 0; r < 5; r++) {
+                if (OpenClipboard(hWnd)) { opened = 1; break; }
+                Sleep(20);
+            }
+            if (!opened) break;
+
+            HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+            if (hData) {
+                const wchar_t *pText = (const wchar_t*)GlobalLock(hData);
+                if (pText) {
+                    wcsncpy(clip_text, pText, 1023);
+                    clip_text[1023] = L'\0';
+                    GlobalUnlock(hData);
+                }
+            } else {
+                HANDLE hText = GetClipboardData(CF_TEXT);
+                if (hText) {
+                    const char *pStr = (const char*)GlobalLock(hText);
+                    if (pStr) {
+                        MultiByteToWideChar(CP_ACP, 0, pStr, -1, clip_text, 1024);
+                        GlobalUnlock(hText);
+                    }
+                }
+            }
+            CloseClipboard();
+
+            wchar_t *start = clip_text;
+            while (*start == L' ' || *start == L'\t' || *start == L'\r' || *start == L'\n' || *start == L'"' || *start == L'\'') start++;
+            wchar_t *end = start + wcslen(start);
+            while (end > start && (end[-1] == L' ' || end[-1] == L'\t' || end[-1] == L'\r' || end[-1] == L'\n' || end[-1] == L'"' || end[-1] == L'\'')) {
+                end--;
+                *end = L'\0';
+            }
+
+            PlatformInfo plat = detect_platform(start);
+            int is_yt = (plat.type == PLATFORM_YOUTUBE ||
+                         wcsstr(start, L"youtube.com/") != NULL ||
+                         wcsstr(start, L"youtu.be/") != NULL);
+
+            if (start[0] == L'\0' || !is_valid_url(start)) break;
+            if (!is_yt) break;
+
+            if (wcscmp(start, g_last_clipboard_url) == 0) break;
+            wcsncpy(g_last_clipboard_url, start, 1023);
+            g_last_clipboard_url[1023] = L'\0';
+
+            /* Ana pencere zaten odakta ve bu link yüklü ise toast açma */
+            if (GetForegroundWindow() == hWnd && wcscmp(start, g_last_fetched_url) == 0) {
+                break;
+            }
+
+            trigger_autofetch(start);
+            return 0;
+        }
+
+        case WM_USER_AUTOFETCH_DONE: {
+            AutoFetchResultMsg *msg = (AutoFetchResultMsg*)lParam;
+            if (!msg) break;
+
+            if (msg->success) {
+                show_toast_popup(hWnd, &msg->meta, msg->url);
+            }
+            free(msg);
+            return 0;
+        }
+
         case WM_GETMINMAXINFO: {
             MINMAXINFO *mmi = (MINMAXINFO*)lParam;
             if (g_min_total_w > 0) {
@@ -1242,6 +1665,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_DESTROY: {
             g_hWnd = NULL;
+            RemoveClipboardFormatListener(hWnd);
+            if (g_hToastWnd && IsWindow(g_hToastWnd)) {
+                DestroyWindow(g_hToastWnd);
+                g_hToastWnd = NULL;
+            }
             remove_tray();
             destroy_fonts();
             PostQuitMessage(0);

@@ -3,6 +3,7 @@
 #include "detector.h"
 #include "codec_selector.h"
 #include "sanitization.h"
+#include "bootstrapper.h"
 
 #include <windows.h>
 #include <wchar.h>
@@ -28,14 +29,32 @@ static void show_cli_help(void)
     );
 }
 
-/* Aynı anda tek pencere çalışsın: yeni çağrı, açık pencereye URL gönderir. */
+/* Aynı anda tek pencere çalışsın: yeni çağrı, açık pencereyi öne getirir ve varsa URL gönderir. */
 static int forward_to_existing_instance(const wchar_t *url)
 {
-    HWND existing = FindWindowW(UI_WINDOW_CLASS, NULL);
+    HWND existing = NULL;
+    for (int retry = 0; retry < 12; retry++) {
+        existing = FindWindowW(UI_WINDOW_CLASS, NULL);
+        if (existing) break;
+        Sleep(50);
+    }
     if (!existing) return 0;
 
+    /* Tepside (SW_HIDE) veya simge durumunda olabilir; her durumda görünür kıl ve öne al */
+    ShowWindow(existing, SW_SHOW);
     ShowWindow(existing, SW_RESTORE);
-    SetForegroundWindow(existing);
+
+    DWORD curThread = GetCurrentThreadId();
+    DWORD foreThread = GetWindowThreadProcessId(GetForegroundWindow(), NULL);
+    if (curThread != foreThread) {
+        AttachThreadInput(curThread, foreThread, TRUE);
+        BringWindowToTop(existing);
+        SetForegroundWindow(existing);
+        AttachThreadInput(curThread, foreThread, FALSE);
+    } else {
+        BringWindowToTop(existing);
+        SetForegroundWindow(existing);
+    }
 
     if (url && url[0] != L'\0') {
         COPYDATASTRUCT cds;
@@ -100,16 +119,22 @@ int WINAPI wWinMain(
 
     HANDLE instance_mutex = CreateMutexW(NULL, TRUE, APP_MUTEX_NAME);
     if (instance_mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
-        int forwarded = forward_to_existing_instance(start_url[0] ? start_url : NULL);
+        forward_to_existing_instance(start_url[0] ? start_url : NULL);
+        CloseHandle(instance_mutex);
+        return 0; /* İkinci bir kopya pencere açılmasını kesin olarak engelle */
+    }
+
+    engine_init();
+
+    /* İlk kurulum kontrolü: yt-dlp veya ffmpeg eksikse indir */
+    if (!bootstrapper_ensure_tools(NULL)) {
+        engine_cleanup();
         if (instance_mutex) {
             ReleaseMutex(instance_mutex);
             CloseHandle(instance_mutex);
         }
-        if (forwarded) return 0;
-        /* Pencere henüz oluşmadıysa normal başlatmaya devam et. */
+        return 0;
     }
-
-    engine_init();
 
     int ret = ui_run(hInstance, nCmdShow, start_url[0] ? start_url : NULL);
 

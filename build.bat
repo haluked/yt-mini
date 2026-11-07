@@ -23,6 +23,7 @@ gcc -O3 -s -flto ^
     -Isrc ^
     src\main.c ^
     src\ui.c ^
+    src\bootstrapper.c ^
     src\engine.c ^
     src\codec_selector.c ^
     src\detector.c ^
@@ -30,7 +31,7 @@ gcc -O3 -s -flto ^
     src\cjson.c ^
     res.o ^
     -o dist\ff-dlp-viewer.exe ^
-    -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32
+    -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32 -lurlmon
 
 if errorlevel 1 (
     echo [HATA] GCC derlemesi basarisiz oldu!

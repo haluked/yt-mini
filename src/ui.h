@@ -4,9 +4,10 @@
 #include <windows.h>
 #include "engine.h"
 
-#define WM_USER_FETCH_DONE    (WM_USER + 101)
-#define WM_USER_DOWNLOAD_TICK (WM_USER + 102)
-#define WM_USER_TRAY_ICON     (WM_USER + 103)
+#define WM_USER_FETCH_DONE      (WM_USER + 101)
+#define WM_USER_DOWNLOAD_TICK   (WM_USER + 102)
+#define WM_USER_TRAY_ICON       (WM_USER + 103)
+#define WM_USER_AUTOFETCH_DONE  (WM_USER + 104)
 
 #define UI_WINDOW_CLASS L"FfDlpViewerLightWindow"
 
