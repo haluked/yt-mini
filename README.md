@@ -1,4 +1,4 @@
-# ff-dlp-viewer (v2.2 Native Light)
+# ff-dlp-viewer (v2.3 Native Light)
 
 **English** · [Türkçe](README.tr.md)
 

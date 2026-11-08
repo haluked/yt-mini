@@ -9,7 +9,7 @@
 #include <wchar.h>
 #include <stdio.h>
 
-#define APP_VERSION_STR L"2.2.0-light"
+#define APP_VERSION_STR L"2.3.0-light"
 /* UI preview builds (-DGB_PREVIEW) use a separate mutex so they can run
    alongside the installed app. */
 #ifdef GB_PREVIEW

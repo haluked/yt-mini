@@ -1,10 +1,11 @@
-"""ff-dlp-viewer Tek Komutla Derleme ve Paketleme Scripti (build.py).
+"""ff-dlp-viewer one-command build and packaging script (build.py).
 
-İşlem adımları:
-1. İsteğe bağlı ikilileri (ffmpeg.exe, yt-dlp.exe) kontrol eder.
-2. Native C11/Win32 binary'sini derler (build.bat çalıştırır, < 1 MB boyut kontrolü yapar).
-3. Inno Setup (ISCC.exe) mevcutsa tek parça Setup.exe kurulum dosyası üretir.
-4. Çıktılar için SHA-256 sağlama özeti üretip kaydeder.
+Steps:
+1. Checks the optional binaries (ffmpeg.exe, yt-dlp.exe).
+2. Builds the native C11/Win32 binary (runs build.bat, verifies the < 1 MB limit).
+3. Produces the portable bundle (exe + tools + README + LICENSE) and its ZIP.
+4. Produces the single-file Setup.exe with Inno Setup when available.
+5. Computes SHA-256 checksums for every artifact.
 """
 
 from __future__ import annotations
@@ -28,8 +29,9 @@ DIST_DIR = PROJECT_ROOT / "dist"
 BIN_DIR = PROJECT_ROOT / "bin"
 INSTALLER_DIR = PROJECT_ROOT / "installer"
 
-APP_VERSION = "2.2.0"
-PORTABLE_NAME = f"ff-dlp-viewer-v{APP_VERSION}-portable"
+APP_NAME = "ff-dlp-viewer"
+APP_VERSION = "2.3.0"
+PORTABLE_NAME = f"{APP_NAME}-v{APP_VERSION}-portable"
 
 
 def print_step(step: str):
@@ -37,106 +39,106 @@ def print_step(step: str):
 
 
 def ensure_binaries():
-    """bin/ altındaki ikilileri (ffmpeg, yt-dlp) kontrol eder."""
-    print_step("1/4: Harici İkililer (ffmpeg, yt-dlp) Kontrol Ediliyor")
+    """Checks the binaries (ffmpeg, yt-dlp) under bin/."""
+    print_step("1/5: Checking external binaries (ffmpeg, yt-dlp)")
     BIN_DIR.mkdir(exist_ok=True)
 
     for binary in ["ffmpeg", "yt-dlp"]:
         target = BIN_DIR / f"{binary}.exe"
         if target.is_file():
-            print(f"{binary} mevcut: {target}")
+            print(f"{binary} found: {target}")
             continue
 
         sys_path = shutil.which(binary)
         if sys_path and os.path.isfile(sys_path):
-            print(f"Sistemdeki {binary} bulundu: {sys_path}")
-            print(f"Kopyalanıyor -> {target}")
+            print(f"Found {binary} on the system: {sys_path}")
+            print(f"Copying -> {target}")
             shutil.copy2(sys_path, target)
         else:
-            print(f"[BİLGİ] {binary}.exe yerel bin/ klasöründe bulunamadı (sistem PATH'inde aranacak).")
+            print(f"[INFO] {binary}.exe was not found in the local bin/ folder (the app also searches the system PATH).")
 
 
 def build_native_c():
-    """Native C11 Win32 ikilisini build.bat ile derler."""
-    print_step("2/4: Native C11 Binary Derleniyor (Ultra-Lightweight < 1 MB)")
+    """Builds the native C11/Win32 binary through build.bat."""
+    print_step("2/5: Building the native C11 binary (ultra-lightweight < 1 MB)")
 
     build_bat = PROJECT_ROOT / "build.bat"
     if not build_bat.is_file():
-        raise FileNotFoundError(f"build.bat bulunamadı: {build_bat}")
+        raise FileNotFoundError(f"build.bat not found: {build_bat}")
 
     res = subprocess.run(["cmd.exe", "/c", str(build_bat)], cwd=str(PROJECT_ROOT))
     if res.returncode != 0:
-        raise RuntimeError("Native C derlemesi başarısız oldu!")
+        raise RuntimeError("Native C build failed!")
 
-    exe_path = DIST_DIR / "ff-dlp-viewer.exe"
+    exe_path = DIST_DIR / f"{APP_NAME}.exe"
     if not exe_path.is_file():
-        raise FileNotFoundError(f"Derlenen executable bulunamadı: {exe_path}")
+        raise FileNotFoundError(f"Compiled executable not found: {exe_path}")
 
     size = exe_path.stat().st_size
     kb = round(size / 1024, 2)
-    print(f"Executable: {exe_path} ({size} bayt / {kb} KB)")
+    print(f"Executable: {exe_path} ({size} bytes / {kb} KB)")
     if size >= 1024 * 1024:
-        raise ValueError(f"UYARI: Binary boyutu 1 MB sınırını aştı! ({size} bayt)")
-    print(f">> DOĞRULAMA BAŞARILI: {kb} KB (< 1 MB)")
+        raise ValueError(f"WARNING: the binary exceeded the 1 MB limit! ({size} bytes)")
+    print(f">> VERIFICATION PASSED: {kb} KB (< 1 MB)")
     return exe_path
 
 
 def build_portable_package() -> Path:
-    """Tüm bağımlılıkları (ff-dlp-viewer.exe, ffmpeg.exe, yt-dlp.exe) içeren bağımsız taşınabilir paketi üretir."""
-    print_step("3/5: Taşınabilir Bağımsız Paket (Portable Bundle) Üretiliyor")
+    """Builds the standalone portable bundle (exe, ffmpeg, yt-dlp, README, LICENSE)."""
+    print_step("3/5: Building the portable bundle")
 
     bundle_dir = DIST_DIR / PORTABLE_NAME
     if bundle_dir.exists():
         shutil.rmtree(bundle_dir)
     bundle_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Ana uygulama
-    shutil.copy2(DIST_DIR / "ff-dlp-viewer.exe", bundle_dir / "ff-dlp-viewer.exe")
+    # 1. Main application
+    shutil.copy2(DIST_DIR / f"{APP_NAME}.exe", bundle_dir / f"{APP_NAME}.exe")
 
-    # 2. Harici ikililer (bin/)
+    # 2. External binaries (bin/)
     bundle_bin = bundle_dir / "bin"
     bundle_bin.mkdir(exist_ok=True)
     for b in ["ffmpeg.exe", "yt-dlp.exe"]:
         src = BIN_DIR / b
         if src.is_file():
             shutil.copy2(src, bundle_bin / b)
-            print(f"Pakete eklendi: bin/{b}")
+            print(f"Added to the bundle: bin/{b}")
         else:
-            print(f"[UYARI] {b} bulunamadı!")
+            print(f"[WARNING] {b} not found!")
 
-    # 3. Kolay kullanım kılavuzu
-    readme_txt = bundle_dir / "KULLANIM.txt"
+    # 3. Quick start guide
+    readme_txt = bundle_dir / "README.txt"
     readme_txt.write_text(
-        "ff-dlp-viewer v2.2.0 (Taşınabilir Sürüm)\n"
+        f"{APP_NAME} v{APP_VERSION} (Portable)\n"
         "===========================================\n\n"
-        "Bu paket tüm bileşenleri (ff-dlp-viewer, yt-dlp, ffmpeg) tek parça olarak içerir.\n"
-        "Python, pip veya harici bir kurulum yapmanıza gerek yoktur.\n\n"
-        "Çalıştırmak için:\n"
-        "  - 'ff-dlp-viewer.exe' dosyasına çift tıklayın.\n\n"
-        "Kapatma:\n"
-        "  - X düğmesi pencereyi sistem tepsisine gizler; uygulama arka planda çalışır.\n"
-        "  - Tamamen kapatmak için tepsi simgesine sağ tıklayıp 'Çıkış' seçin.\n\n"
-        "İndirilen dosyalar varsayılan olarak Videolar klasörüne kaydedilir.\n"
-        "İsterseniz 'Konum Seç' ile başka bir klasör seçebilirsiniz.\n\n"
-        "İyi kullanımlar!\n",
+        "This package contains every component (ff-dlp-viewer, yt-dlp, ffmpeg) in one folder.\n"
+        "You do not need Python, pip or any external installation.\n\n"
+        "To run:\n"
+        "  - Double-click 'ff-dlp-viewer.exe'.\n\n"
+        "Closing:\n"
+        "  - The X button hides the window to the system tray; the app keeps running in the background.\n"
+        "  - To quit completely, right-click the tray icon and choose 'Quit'.\n\n"
+        "Downloads are saved to your Videos folder by default.\n"
+        "Use 'Choose Folder' to pick another folder.\n\n"
+        "Enjoy!\n",
         encoding="utf-8"
     )
 
-    # 4. Lisans
+    # 4. License
     license_src = PROJECT_ROOT / "LICENSE"
     if license_src.is_file():
         shutil.copy2(license_src, bundle_dir / "LICENSE")
 
-    # 5. ZIP arşivi oluştur (üst klasör adı korunur)
+    # 5. ZIP archive (keeps the top-level folder name)
     zip_base = DIST_DIR / PORTABLE_NAME
     archive_file = Path(shutil.make_archive(
         str(zip_base), "zip", root_dir=str(DIST_DIR), base_dir=bundle_dir.name))
-    print(f"[BAŞARILI] Taşınabilir paket hazırlandı: {archive_file}")
+    print(f"[SUCCESS] Portable bundle ready: {archive_file}")
     return archive_file
 
 
 def find_iscc() -> Path | None:
-    """Inno Setup derleyicisini (ISCC.exe) arar."""
+    """Locates the Inno Setup compiler (ISCC.exe)."""
     iscc_path = shutil.which("ISCC.exe") or shutil.which("iscc")
     if iscc_path:
         return Path(iscc_path)
@@ -153,33 +155,33 @@ def find_iscc() -> Path | None:
 
 
 def build_inno_setup():
-    """Inno Setup ile Setup.exe üretir."""
-    print_step("4/5: Inno Setup ile Setup.exe Üretiliyor")
+    """Produces Setup.exe with Inno Setup."""
+    print_step("4/5: Producing Setup.exe with Inno Setup")
 
     iscc = find_iscc()
     if not iscc:
-        print("[BİLGİ] Inno Setup (ISCC.exe) sistemde bulunamadı.")
-        print("Taşınabilir bağımsız uygulama 'dist/ff-dlp-viewer.exe' hazırlandı.")
-        print("Tek parça 'Setup.exe' üretmek için Inno Setup 6 yükleyebilirsiniz.")
+        print("[INFO] Inno Setup (ISCC.exe) was not found on this system.")
+        print("The portable standalone app under 'dist/' is ready.")
+        print("Install Inno Setup 6 to produce a single-file 'Setup.exe'.")
         return None
 
     iss_file = INSTALLER_DIR / "setup.iss"
     cmd = [str(iscc), str(iss_file)]
-    print(f"ISCC çalıştırılıyor: {iscc}")
+    print(f"Running ISCC: {iscc}")
     res = subprocess.run(cmd, cwd=str(INSTALLER_DIR))
     if res.returncode != 0:
-        raise RuntimeError("Inno Setup derlemesi başarısız oldu!")
+        raise RuntimeError("Inno Setup build failed!")
 
-    setup_exe = DIST_DIR / f"ff-dlp-viewer-Setup-v{APP_VERSION}.exe"
+    setup_exe = DIST_DIR / f"{APP_NAME}-Setup-v{APP_VERSION}.exe"
     if setup_exe.is_file():
-        print(f"[BAŞARILI] Kurulum dosyası üretildi: {setup_exe}")
+        print(f"[SUCCESS] Installer produced: {setup_exe}")
         return setup_exe
     return None
 
 
 def compute_sha256(filepath: Path) -> str:
-    """Dosyanın SHA-256 özetini hesaplar ve yanına kaydeder."""
-    print_step(f"5/5: SHA-256 Bütünlük Özeti ({filepath.name})")
+    """Computes the file's SHA-256 checksum and saves it next to the file."""
+    print_step(f"5/5: SHA-256 integrity checksum ({filepath.name})")
     sha256 = hashlib.sha256()
     with open(filepath, "rb") as f:
         while chunk := f.read(65536):
@@ -189,12 +191,12 @@ def compute_sha256(filepath: Path) -> str:
     checksum_file = filepath.with_suffix(filepath.suffix + ".sha256")
     checksum_file.write_text(f"{digest} *{filepath.name}\n", encoding="utf-8")
     print(f"SHA-256 ({filepath.name}): {digest}")
-    print(f"Sağlama dosyası: {checksum_file}")
+    print(f"Checksum file: {checksum_file}")
     return digest
 
 
 def main():
-    print("ff-dlp-viewer Native C Otomatik Derleme ve Paketleme Başlıyor...")
+    print("ff-dlp-viewer native C automated build and packaging starting...")
     ensure_binaries()
     exe_path = build_native_c()
     compute_sha256(exe_path)
@@ -208,8 +210,8 @@ def main():
         compute_sha256(setup_exe)
 
     print("\n======================================================")
-    print("TÜM İŞLEMLER BAŞARIYLA TAMAMLANDI!")
-    print(f"Çıktı Dizini: {DIST_DIR}")
+    print("ALL STEPS COMPLETED SUCCESSFULLY!")
+    print(f"Output directory: {DIST_DIR}")
     print("======================================================")
 
 

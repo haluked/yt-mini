@@ -1,4 +1,4 @@
-# ff-dlp-viewer (v2.2 Native Light)
+# ff-dlp-viewer (v2.3 Native Light)
 
 > Windows için ultra hafif (< 1 MB), çalışma zamanı gerektirmeyen (sıfır Python/Electron), yerel Win32 GUI tabanlı video ve ses indirme aracı.
 
