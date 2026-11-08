@@ -222,6 +222,36 @@ static int ensure_directory(const wchar_t *dir)
     return rc == ERROR_SUCCESS || rc == ERROR_ALREADY_EXISTS || rc == ERROR_FILE_EXISTS;
 }
 
+/* yt-dlp bir Python programıdır; Windows'ta pipe (konsol olmayan) çıktısını
+   varsayılan olarak ANSI kod sayfasına (Türkçe Windows'ta cp1254) yazar.
+   Ş, ı, ğ ve emojiler bu yüzden bozulurdu. PYTHONUTF8=1 alt sürecin tüm
+   çıktılarını UTF-8'e zorlar; biz de zaten CP_UTF8 ile çözüyoruz. */
+static wchar_t *build_child_environment(void)
+{
+    LPCWSTR src = GetEnvironmentStringsW();
+    if (!src) return NULL;
+
+    size_t total = 0;
+    for (LPCWSTR p = src; *p; p += wcslen(p) + 1) {
+        total += wcslen(p) + 1;
+    }
+
+    static const wchar_t extra[] = L"PYTHONUTF8=1";
+    size_t extra_len = wcslen(extra) + 1;             /* dize + NUL */
+    wchar_t *env = (wchar_t*)malloc((total + extra_len + 1) * sizeof(wchar_t));
+    if (!env) {
+        FreeEnvironmentStringsW((LPWSTR)src);
+        return NULL;
+    }
+
+    memcpy(env, src, total * sizeof(wchar_t));
+    memcpy(env + total, extra, extra_len * sizeof(wchar_t));
+    env[total + extra_len] = L'\0';                   /* blok sonlandıran ikinci NUL */
+
+    FreeEnvironmentStringsW((LPWSTR)src);
+    return env;
+}
+
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len)
 {
     if (seconds <= 0) {
@@ -289,8 +319,11 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
     cJSON *formats_array = cJSON_GetObjectItem(root, "formats");
     if (cJSON_IsArray(formats_array)) {
         int arr_size = cJSON_GetArraySize(formats_array);
+        /* yt-dlp formatları kötüden iyiye sıralar. Sınır dolarsa baştan değil
+           sondan alarak EN İYİ formatların listede kalmasını garanti ederiz. */
+        int start = (arr_size > MAX_FORMATS) ? (arr_size - MAX_FORMATS) : 0;
         int f_idx = 0;
-        for (int i = 0; i < arr_size && f_idx < MAX_FORMATS; i++) {
+        for (int i = start; i < arr_size && f_idx < MAX_FORMATS; i++) {
             cJSON *f = cJSON_GetArrayItem(formats_array, i);
             if (!cJSON_IsObject(f)) continue;
 
@@ -406,9 +439,17 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     wchar_t cmd_line[2048];
     _snwprintf(cmd_line, 2048, L"\"%ls\" --dump-json --no-playlist --no-warnings \"%ls\"", ytdlp_path, p->url);
 
+    /* stdout: yalnızca JSON; stderr: uyarı/hata satırları.
+       Aynı pipe'a karışsalar JSON'dan önce gelen tek bir satır bile ayrıştırmayı bozuyordu. */
     HANDLE hReadPipe, hWritePipe;
+    HANDLE hErrReadPipe, hErrWritePipe;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0) ||
+        !CreatePipe(&hErrReadPipe, &hErrWritePipe, &sa, 64 * 1024)) {
+        if (hReadPipe) CloseHandle(hReadPipe);
+        if (hWritePipe) CloseHandle(hWritePipe);
+        if (hErrReadPipe) CloseHandle(hErrReadPipe);
+        if (hErrWritePipe) CloseHandle(hErrWritePipe);
         EnterCriticalSection(&g_engine_cs);
         g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
@@ -418,13 +459,14 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         return 0;
     }
     SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(hErrReadPipe, HANDLE_FLAG_INHERIT, 0);
 
     STARTUPINFOW si;
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
     si.hStdInput = INVALID_HANDLE_VALUE;
     si.hStdOutput = hWritePipe;
-    si.hStdError = hWritePipe;
+    si.hStdError = hErrWritePipe;
     si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_HIDE;
 
@@ -432,15 +474,20 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     memset(&pi, 0, sizeof(pi));
 
     job = create_kill_job();
+    wchar_t *child_env = build_child_environment();
 
     EnterCriticalSection(&g_engine_cs);
     BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
-        CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+        CREATE_NO_WINDOW | CREATE_SUSPENDED, child_env, NULL, &si, &pi);
+    free(child_env);
+
     if (!ok) {
         g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
         CloseHandle(hWritePipe);
         CloseHandle(hReadPipe);
+        CloseHandle(hErrWritePipe);
+        CloseHandle(hErrReadPipe);
         if (job) CloseHandle(job);
         if (p->callback) p->callback(0, NULL, L"yt-dlp süreci başlatılamadı.", p->user_data);
         free(p);
@@ -463,8 +510,9 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         else TerminateProcess(pi.hProcess, 0);
     }
 
-    /* Close write end immediately so ReadFile sees EOF when child terminates */
+    /* Close write ends immediately so ReadFile sees EOF when child terminates */
     CloseHandle(hWritePipe);
+    CloseHandle(hErrWritePipe);
 
     /* Read JSON stdout */
     size_t buf_capacity = 1024 * 1024;
@@ -474,6 +522,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         TerminateProcess(pi.hProcess, 1);
         WaitForSingleObject(pi.hProcess, 5000);
         CloseHandle(hReadPipe);
+        CloseHandle(hErrReadPipe);
 
         EnterCriticalSection(&g_engine_cs);
         HANDLE hProc = g_current_process;
@@ -514,6 +563,21 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     CloseHandle(hReadPipe);
     WaitForSingleObject(pi.hProcess, INFINITE);
 
+    /* Süreç kesin bitti; şimdi stderr'i güvenle boşalt (hata metinleri burada). */
+    char err_buf[4096];
+    size_t err_len = 0;
+    err_buf[0] = '\0';
+    while (ReadFile(hErrReadPipe, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+        size_t copy = bytes_read;
+        if (err_len + copy + 1 > sizeof(err_buf)) copy = sizeof(err_buf) - err_len - 1;
+        if (copy > 0) {
+            memcpy(err_buf + err_len, chunk, copy);
+            err_len += copy;
+            err_buf[err_len] = '\0';
+        }
+    }
+    CloseHandle(hErrReadPipe);
+
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
 
@@ -531,17 +595,18 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     if (pi.hThread) CloseHandle(pi.hThread);
 
     if (was_cancelled) {
-        if (p->callback) p->callback(0, NULL, L"İşlem kullanıcı tarafından iptal edildi.", p->user_data);
+        if (p->callback) p->callback(0, NULL, ENGINE_MSG_CANCELLED, p->user_data);
     } else if (truncated) {
         if (p->callback) p->callback(0, NULL, L"yt-dlp yanıtı çok büyük; medya bilgisi okunamadı.", p->user_data);
     } else if (exit_code != 0 || buf_len == 0) {
         wchar_t err_msg[512] = L"Video bilgisi alınamadı. Bağlantıyı kontrol edin.";
-        if (strstr(json_buf, "Private video")) wcscpy(err_msg, L"Bu video gizli veya erişilemez.");
-        else if (strstr(json_buf, "Sign in to confirm")) wcscpy(err_msg, L"Bu video oturum açma veya yaş onayı gerektiriyor.");
-        else if (strstr(json_buf, "Video unavailable")) wcscpy(err_msg, L"Bu video kullanılamıyor veya silinmiş.");
+        if (strstr(err_buf, "Private video")) wcscpy(err_msg, L"Bu video gizli veya erişilemez.");
+        else if (strstr(err_buf, "Sign in to confirm")) wcscpy(err_msg, L"Bu video oturum açma veya yaş onayı gerektiriyor.");
+        else if (strstr(err_buf, "Video unavailable")) wcscpy(err_msg, L"Bu video kullanılamıyor veya silinmiş.");
         else {
             wchar_t detail[512];
-            extract_last_error(json_buf, detail, 512);
+            extract_last_error(err_buf, detail, 512);
+            if (!detail[0]) extract_last_error(json_buf, detail, 512);
             if (detail[0]) {
                 _snwprintf(err_msg, 512, L"yt-dlp: %ls", detail);
             }
@@ -661,7 +726,8 @@ static void parse_progress_line(
     char *spd_str = pipe1 + 1;
     while (*spd_str == ' ') spd_str++;
     double spd = atof(spd_str);
-    if (strstr(spd_str, "MiB/s") || strstr(spd_str, "MB/s")) spd *= 1024.0 * 1024.0;
+    if (strstr(spd_str, "GiB/s")) spd *= 1024.0 * 1024.0 * 1024.0;
+    else if (strstr(spd_str, "MiB/s") || strstr(spd_str, "MB/s")) spd *= 1024.0 * 1024.0;
     else if (strstr(spd_str, "KiB/s") || strstr(spd_str, "kB/s")) spd *= 1024.0;
     *out_speed = spd;
 
@@ -735,10 +801,24 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     }
 
     /* Uzun başlıklar MAX_PATH'i aşmasın ve aynı başlıklı videolar
-       birbirinin üzerine yazılmasın. */
+       birbirinin üzerine yazılmasın. Klasör adındaki '%' yt-dlp şablon
+       motorunda özel karakter olduğu için '%%' olarak kaçılır. */
+    wchar_t dir_escaped[MAX_PATH * 2];
+    {
+        const wchar_t *src = p->dest_dir;
+        wchar_t *dst = dir_escaped;
+        wchar_t *dst_end = dir_escaped + (sizeof(dir_escaped) / sizeof(wchar_t)) - 1;
+        while (*src && dst + 2 <= dst_end) {
+            if (*src == L'%') { *dst++ = L'%'; *dst++ = L'%'; }
+            else { *dst++ = *src; }
+            src++;
+        }
+        *dst = L'\0';
+    }
+
     wchar_t out_template[MAX_PATH + 64];
     _snwprintf(out_template, sizeof(out_template)/sizeof(wchar_t),
-        L"-o \"%ls\\%%(title).150B [%%(id)s].%%(ext)s\"", p->dest_dir);
+        L"-o \"%ls\\%%(title).150B [%%(id)s].%%(ext)s\"", dir_escaped);
 
     wchar_t extra_opts[512] = L"";
     if (audio_mode) {
@@ -749,6 +829,12 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         } else {
             wcscpy(extra_opts, L"-x --audio-format opus");
         }
+    } else if (p->selection.audio_only_reencode) {
+        /* Video akışı kopyalanır, yalnızca ses AAC'ye çevrilip MP4'e birleştirilir.
+           (--recode-video kullansaydık kaynak video da yeniden kodlanacaktı.) */
+        _snwprintf(extra_opts, 511,
+            L"--merge-output-format %ls --ppa \"Merger+-c:v copy+-c:a aac\"",
+            p->selection.expected_container);
     } else if (p->selection.needs_reencode) {
         _snwprintf(extra_opts, 511, L"--recode-video %ls", p->selection.expected_container);
     } else if (!p->selection.is_direct) {
@@ -787,10 +873,13 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     memset(&pi, 0, sizeof(pi));
 
     job = create_kill_job();
+    wchar_t *child_env = build_child_environment();
 
     EnterCriticalSection(&g_engine_cs);
     BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
-        CREATE_NO_WINDOW | CREATE_SUSPENDED, NULL, NULL, &si, &pi);
+        CREATE_NO_WINDOW | CREATE_SUSPENDED, child_env, NULL, &si, &pi);
+    free(child_env);
+
     if (!ok) {
         g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
@@ -856,6 +945,12 @@ static DWORD WINAPI download_thread_main(LPVOID param)
                     if (q) *q = '\0';
                 } else if (strncmp(trimmed, "[ExtractAudio] Destination: ", 28) == 0) {
                     strncpy(last_destination, trimmed + 28, sizeof(last_destination) - 1);
+                    last_destination[sizeof(last_destination) - 1] = '\0';
+                } else if (strstr(trimmed, "[VideoConvertor]") != NULL &&
+                           strstr(trimmed, " Destination: ") != NULL) {
+                    /* --recode-video sonrası gerçek dosya budur; öncesi silinir. */
+                    const char *p_dest = strstr(trimmed, " Destination: ") + 14;
+                    strncpy(last_destination, p_dest, sizeof(last_destination) - 1);
                     last_destination[sizeof(last_destination) - 1] = '\0';
                 } else if (strstr(trimmed, "has already been downloaded") != NULL &&
                            strncmp(trimmed, "[download] ", 11) == 0) {

@@ -30,6 +30,7 @@ typedef struct {
     int is_composite;
     int is_direct;
     int needs_reencode;
+    int audio_only_reencode;   /* 1: video akışı kopyalanır, yalnızca ses dönüştürülür */
     wchar_t reason[256];
     wchar_t warning[256];
 } SelectionResult;

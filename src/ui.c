@@ -11,6 +11,8 @@
 #include <shellapi.h>
 #include <wchar.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifndef GET_X_LPARAM
 #define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
@@ -18,10 +20,6 @@
 #ifndef GET_Y_LPARAM
 #define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
 #endif
-
-#pragma comment(lib, "comctl32.lib")
-#pragma comment(lib, "shell32.lib")
-#pragma comment(lib, "ole32.lib")
 
 #define IDC_GRP_URL           1000
 #define IDC_EDIT_URL          1001
@@ -550,8 +548,12 @@ static void trigger_fetch(void)
         return;
     }
 
-    /* Zaten aynı URL çekiliyorsa mükerrer süreç başlatma */
-    if (g_is_fetching) {
+    /* Motor meşgulse (ön-çekim, indirme ya da toast fetch sürüyorsa) HİÇBİR
+       durum değişmeden geri dön: mevcut medya bilgisi silinmesin, UI
+       "sorgulanıyor" takılı kalmasın ve otomatik-indirme bayrağı asılı kalmasın. */
+    if (g_is_fetching || engine_is_busy()) {
+        g_auto_download_after_fetch = 0;
+        SetWindowTextW(g_hStaticStatus, L"Motor şu an meşgul, lütfen bekleyin.");
         return;
     }
 
@@ -577,6 +579,7 @@ static void trigger_fetch(void)
 
     if (!engine_fetch_info_async(url, on_fetch_callback, NULL)) {
         g_is_fetching = 0;
+        g_auto_download_after_fetch = 0;
         EnableWindow(g_hBtnFetch, TRUE);
         SetWindowTextW(g_hBtnFetch, L"Bilgi Getir");
         SetWindowTextW(g_hStaticStatus, L"Motor şu an meşgul, lütfen bekleyin.");
@@ -585,6 +588,20 @@ static void trigger_fetch(void)
 
 static void update_format_selection(void)
 {
+    int is_video = (SendMessageW(g_hRadioVideo, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+    /* Görünürlüğü her durumda güncelle: medya yokken sekme değiştirilirse
+       çözünürlük/ses kutuları yine doğru takas edilmeli. */
+    if (is_video) {
+        ShowWindow(g_hComboRes, SW_SHOW);
+        ShowWindow(g_hChkForceMp4, SW_SHOW);
+        ShowWindow(g_hComboAudio, SW_HIDE);
+    } else {
+        ShowWindow(g_hComboRes, SW_HIDE);
+        ShowWindow(g_hChkForceMp4, SW_HIDE);
+        ShowWindow(g_hComboAudio, SW_SHOW);
+    }
+
     if (!g_has_meta) {
         g_selection_valid = 0;
         EnableWindow(g_hBtnDownload, FALSE);
@@ -593,15 +610,10 @@ static void update_format_selection(void)
 
     memset(&g_current_selection, 0, sizeof(g_current_selection));
 
-    int is_video = (SendMessageW(g_hRadioVideo, BM_GETCHECK, 0, 0) == BST_CHECKED);
     int target_res = 0;
     int ok = 0;
 
     if (is_video) {
-        ShowWindow(g_hComboRes, SW_SHOW);
-        ShowWindow(g_hChkForceMp4, SW_SHOW);
-        ShowWindow(g_hComboAudio, SW_HIDE);
-
         int cur_sel = (int)SendMessageW(g_hComboRes, CB_GETCURSEL, 0, 0);
         if (cur_sel > 0 && cur_sel - 1 < g_current_meta.num_resolutions) {
             target_res = g_current_meta.available_resolutions[cur_sel - 1];
@@ -611,10 +623,6 @@ static void update_format_selection(void)
         ok = select_best_format(g_current_meta.formats, g_current_meta.format_count,
                                 L"video", target_res, force_mp4, L"opus", &g_current_selection);
     } else {
-        ShowWindow(g_hComboRes, SW_HIDE);
-        ShowWindow(g_hChkForceMp4, SW_HIDE);
-        ShowWindow(g_hComboAudio, SW_SHOW);
-
         int aud_sel = (int)SendMessageW(g_hComboAudio, CB_GETCURSEL, 0, 0);
         const wchar_t *pref = (aud_sel == 1) ? L"aac" : ((aud_sel == 2) ? L"mp3" : L"opus");
         ok = select_best_format(g_current_meta.formats, g_current_meta.format_count,
@@ -775,13 +783,13 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
 {
     switch (msg) {
         case WM_CREATE: {
-            g_toast_state.font_badge = CreateFontW(12, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            g_toast_state.font_badge = CreateFontW(S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_toast_state.font_title = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            g_toast_state.font_title = CreateFontW(S(14), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_toast_state.font_small = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            g_toast_state.font_small = CreateFontW(S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_toast_state.font_btn = CreateFontW(13, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            g_toast_state.font_btn = CreateFontW(S(13), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 
             /* 4 saniyelik otomatik kaybolma zamanlayıcısı */
@@ -820,7 +828,7 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             SetBkMode(hdc, TRANSPARENT);
 
             /* 1. Kırmızı YouTube Rozeti */
-            RECT rcBadge = { 14, 10, 14 + 80, 10 + 18 };
+            RECT rcBadge = { S(14), S(10), S(14 + 80), S(10 + 18) };
             HBRUSH redBrush = CreateSolidBrush(RGB(220, 38, 38));
             FillRect(hdc, &rcBadge, redBrush);
             DeleteObject(redBrush);
@@ -831,33 +839,33 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
 
             /* Süre bilgisi */
             if (g_toast_state.meta.duration_str[0] != L'\0') {
-                RECT rcDuration = { 14 + 80 + 8, 10, 14 + 80 + 8 + 80, 10 + 18 };
+                RECT rcDuration = { S(14 + 80 + 8), S(10), S(14 + 80 + 8 + 80), S(10 + 18) };
                 SetTextColor(hdc, RGB(100, 116, 139));
                 SelectObject(hdc, g_toast_state.font_small);
                 DrawTextW(hdc, g_toast_state.meta.duration_str, -1, &rcDuration, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
             }
 
             /* Kapat Butonu (✕) */
-            RECT rcClose = { rcClient.right - 24, 6, rcClient.right - 6, 24 };
+            RECT rcClose = { rcClient.right - S(24), S(6), rcClient.right - S(6), S(24) };
             g_toast_state.rc_close = rcClose;
             SetTextColor(hdc, g_toast_state.close_hover ? RGB(220, 38, 38) : RGB(148, 163, 184));
             SelectObject(hdc, g_toast_state.font_badge);
             DrawTextW(hdc, L"✕", -1, &rcClose, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
             /* 2. Video Başlığı */
-            RECT rcTitle = { 14, 34, rcClient.right - 108, 34 + 36 };
+            RECT rcTitle = { S(14), S(34), rcClient.right - S(108), S(34 + 36) };
             SetTextColor(hdc, RGB(30, 41, 59));
             SelectObject(hdc, g_toast_state.font_title);
             DrawTextW(hdc, g_toast_state.meta.title, -1, &rcTitle, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
 
             /* 3. Alt Açıklama */
-            RECT rcSub = { 14, 72, rcClient.right - 108, 72 + 16 };
+            RECT rcSub = { S(14), S(72), rcClient.right - S(108), S(72 + 16) };
             SetTextColor(hdc, RGB(100, 116, 139));
             SelectObject(hdc, g_toast_state.font_small);
             DrawTextW(hdc, L"İndirmeye hazır • 4 sn içinde kapanır", -1, &rcSub, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
             /* 4. Yeşil İndir Butonu */
-            RECT rcBtn = { rcClient.right - 98, 34, rcClient.right - 14, 34 + 36 };
+            RECT rcBtn = { rcClient.right - S(98), S(34), rcClient.right - S(14), S(34 + 36) };
             g_toast_state.rc_btn = rcBtn;
             COLORREF btnColor = g_toast_state.btn_hover ? RGB(46, 160, 67) : RGB(35, 134, 54);
             HBRUSH greenBrush = CreateSolidBrush(btnColor);
@@ -970,10 +978,11 @@ static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wch
     RECT rcWork;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
 
-    int toast_w = 370;
-    int toast_h = 96;
-    int toast_x = rcWork.right - toast_w - 20;
-    int toast_y = rcWork.bottom - toast_h - 20;
+    /* Boyut ve kenar boşlukları DPI ile ölçeklenir (ana pencere gibi). */
+    int toast_w = S(370);
+    int toast_h = S(96);
+    int toast_x = rcWork.right - toast_w - S(20);
+    int toast_y = rcWork.bottom - toast_h - S(20);
 
     g_hToastWnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -1042,6 +1051,8 @@ static void show_tray_menu(HWND hWnd)
 
     SetForegroundWindow(hWnd);
     TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hWnd, NULL);
+    /* Menünün dışarı tıklamayla da güvenle kapanması için gerekli. */
+    PostMessageW(hWnd, WM_NULL, 0, 0);
     DestroyMenu(hMenu);
 }
 
@@ -1208,15 +1219,31 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 FILE *f = _wfopen(dropped_file, L"r, ccs=UTF-8");
                 if (f) {
                     wchar_t line[1024];
-                    if (fgetws(line, 1023, f)) {
+                    wchar_t first_line[1024] = L"";
+                    wchar_t found_url[1024] = L"";
+                    int line_no = 0;
+                    /* .url kısayolu "[InternetShortcut]" ile başlar; gerçek adres
+                       "URL=" satırındadır. İlk 64 satırı tara, URL= bul. */
+                    while (fgetws(line, 1023, f) && line_no < 64) {
+                        line_no++;
                         wchar_t *nl = wcschr(line, L'\n');
                         if (nl) *nl = L'\0';
                         nl = wcschr(line, L'\r');
                         if (nl) *nl = L'\0';
-                        SetWindowTextW(g_hEditUrl, line);
-                        if (is_valid_url(line)) trigger_fetch();
+                        if (line_no == 1) wcsncpy(first_line, line, 1023);
+                        if (_wcsnicmp(line, L"URL=", 4) == 0) {
+                            wcsncpy(found_url, line + 4, 1023);
+                            found_url[1023] = L'\0';
+                            break;
+                        }
                     }
                     fclose(f);
+
+                    const wchar_t *candidate = found_url[0] ? found_url : first_line;
+                    if (candidate[0]) {
+                        SetWindowTextW(g_hEditUrl, candidate);
+                        if (is_valid_url(candidate)) trigger_fetch();
+                    }
                 } else {
                     SetWindowTextW(g_hEditUrl, dropped_file);
                     if (is_valid_url(dropped_file)) trigger_fetch();
@@ -1403,8 +1430,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 EnableWindow(g_hBtnCancel, FALSE);
                 SetWindowTextW(g_hStaticTitle, L"Bilgi alınamadı.");
                 SetWindowTextW(g_hStaticMeta, msg->error_msg);
-                SetWindowTextW(g_hStaticStatus, L"Hata oluştu.");
-                MessageBoxW(hWnd, msg->error_msg[0] ? msg->error_msg : L"Video bilgisi alınamadı.", L"Hata", MB_OK | MB_ICONERROR);
+                if (wcscmp(msg->error_msg, ENGINE_MSG_CANCELLED) == 0) {
+                    /* İptal bir hata değil: kullanıcı zaten biliyor, dialog ile ürkütme. */
+                    SetWindowTextW(g_hStaticStatus, L"Bilgi çekme iptal edildi.");
+                } else {
+                    SetWindowTextW(g_hStaticStatus, L"Hata oluştu.");
+                    MessageBoxW(hWnd, msg->error_msg[0] ? msg->error_msg : L"Video bilgisi alınamadı.", L"Hata", MB_OK | MB_ICONERROR);
+                }
             }
 
             free(msg);
@@ -1424,8 +1456,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 wchar_t dl_str[64];
                 format_bytes_str(msg->downloaded, dl_str, 64);
 
+                /* yt-dlp toplam boyutu bilmiyorsa "NA" yazar; 0 bayt değil,
+                 "bilinmiyor" anlamına gelir. */
                 wchar_t tot_str[64];
-                format_bytes_str(msg->total, tot_str, 64);
+                if (msg->total > 0) format_bytes_str(msg->total, tot_str, 64);
+                else wcscpy(tot_str, L"??");
 
                 wchar_t status_line[256];
                 _snwprintf(status_line, 256, L"İndiriliyor: %.1f%% | Hız: %ls/s | Kalan: %02d:%02d | %ls / %ls",
@@ -1486,8 +1521,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_USER_TRAY_ICON: {
             if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) {
                 show_tray_menu(hWnd);
-            } else if (lParam == WM_LBUTTONDBLCLK) {
+            } else if (lParam == WM_LBUTTONUP || lParam == WM_LBUTTONDBLCLK) {
+                /* Tek sol tık da pencereyi geri getirsin (Python sürümdeki gibi). */
                 ShowWindow(hWnd, SW_RESTORE);
+                ShowWindow(hWnd, SW_SHOW);
                 SetForegroundWindow(hWnd);
             }
             return 0;

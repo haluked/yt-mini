@@ -8,6 +8,8 @@
 #include <ole2.h>
 #include <urlmon.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define YTDLP_LATEST_URL L"https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 #define FFMPEG_URL       L"https://github.com/haluked/yt-mini/releases/download/v2.0.0-beta/ffmpeg.exe"
@@ -36,6 +38,7 @@ typedef struct {
     const wchar_t *current_item_name;
     DWORD last_update_tick;
     int last_percent;
+    wchar_t fail_msg[256];   /* Hangi adım neden başarısız oldu (kullanıcıya gösterilir) */
 } BootstrapState;
 
 /* IBindStatusCallback implementasyonu */
@@ -203,7 +206,28 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
     if (!state) return 0;
 
     wchar_t bin_dir[MAX_PATH];
-    if (!get_localappdata_bin_dir(bin_dir, MAX_PATH)) {
+
+    if (state->is_update_only) {
+        /* Güncelleme, UYGULAMANIN GERÇEKTEN KULLANDIĞI kopyayı hedeflesin.
+           find_binary sırası: app dizini -> app\bin -> ..\bin -> LOCALAPPDATA -> PATH.
+           Eski kod hep LOCALAPPDATA'ya yazıyordu; portable kurulumda app\bin'deki
+           kopya öncelikli olduğundan güncelleme sessizce etkisiz kalıyordu. */
+        wchar_t used[MAX_PATH];
+        if (engine_find_ytdlp(used, MAX_PATH)) {
+            wchar_t *slash = wcsrchr(used, L'\\');
+            if (slash) {
+                *slash = L'\0';
+                wcsncpy(bin_dir, used, MAX_PATH - 1);
+                bin_dir[MAX_PATH - 1] = L'\0';
+            } else if (!get_localappdata_bin_dir(bin_dir, MAX_PATH)) {
+                PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
+                return 0;
+            }
+        } else if (!get_localappdata_bin_dir(bin_dir, MAX_PATH)) {
+            PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
+            return 0;
+        }
+    } else if (!get_localappdata_bin_dir(bin_dir, MAX_PATH)) {
         PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
         return 0;
     }
@@ -242,10 +266,21 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
 
         HRESULT hr = URLDownloadToFileW(NULL, YTDLP_LATEST_URL, tmp_path, 0, &cb.callback);
         if (hr == S_OK && !state->cancel_requested) {
-            MoveFileExW(tmp_path, ytdlp_target, MOVEFILE_REPLACE_EXISTING);
+            /* Taşıma başarısız olabilir (dosya kullanımda, AV kilidi vb.);
+               sonucu kontrol etmeyip "güncellendi" demek yanıltıcıydı. */
+            if (!MoveFileExW(tmp_path, ytdlp_target, MOVEFILE_REPLACE_EXISTING)) {
+                DeleteFileW(tmp_path);
+                _snwprintf(state->fail_msg, 255,
+                    L"yt-dlp kopyalanamadı (dosya kullanımda olabilir).\nHedef: %ls", ytdlp_target);
+                state->fail_msg[255] = L'\0';
+                PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
+                return 0;
+            }
         } else {
             DeleteFileW(tmp_path);
             if (!state->cancel_requested) {
+                wcsncpy(state->fail_msg, L"yt-dlp indirilemedi! İnternet bağlantınızı kontrol edin.", 255);
+                state->fail_msg[255] = L'\0';
                 SetWindowTextW(state->hwnd_status, L"yt-dlp indirilemedi!");
             }
             PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
@@ -267,10 +302,19 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
 
         HRESULT hr = URLDownloadToFileW(NULL, FFMPEG_URL, tmp_path, 0, &cb.callback);
         if (hr == S_OK && !state->cancel_requested) {
-            MoveFileExW(tmp_path, ffmpeg_target, MOVEFILE_REPLACE_EXISTING);
+            if (!MoveFileExW(tmp_path, ffmpeg_target, MOVEFILE_REPLACE_EXISTING)) {
+                DeleteFileW(tmp_path);
+                _snwprintf(state->fail_msg, 255,
+                    L"ffmpeg kopyalanamadı (dosya kullanımda olabilir).\nHedef: %ls", ffmpeg_target);
+                state->fail_msg[255] = L'\0';
+                PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
+                return 0;
+            }
         } else {
             DeleteFileW(tmp_path);
             if (!state->cancel_requested) {
+                wcsncpy(state->fail_msg, L"ffmpeg indirilemedi! İnternet bağlantınızı kontrol edin.", 255);
+                state->fail_msg[255] = L'\0';
                 SetWindowTextW(state->hwnd_status, L"ffmpeg indirilemedi!");
             }
             PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
@@ -406,12 +450,16 @@ static LRESULT CALLBACK BootstrapDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-static int run_bootstrap_dialog(HWND hParent, int is_update_only)
+static int run_bootstrap_dialog(HWND hParent, int is_update_only, wchar_t *fail_out, size_t fail_len)
 {
-    BootstrapState state;
-    memset(&state, 0, sizeof(state));
-    state.is_update_only = is_update_only;
-    state.result = 0;
+    /* Heap'te allocate: WaitForSingleObject zaman aşımına uğrarsa worker thread
+       hâlâ bu yapıyı kullanıyor olabilir; stack o an ölürdü (use-after-free).
+       Zaman aşımı durumunda bilinçli olarak sızdırılır (güvenli), thread bitince
+       öbür yolda serbest bırakılır. */
+    BootstrapState *state = (BootstrapState*)calloc(1, sizeof(BootstrapState));
+    if (!state) return 0;
+    state->is_update_only = is_update_only;
+    state->result = 0;
 
     HINSTANCE hInst = GetModuleHandleW(NULL);
     const wchar_t *className = L"FfDlpBootstrapperWindow";
@@ -440,15 +488,18 @@ static int run_bootstrap_dialog(HWND hParent, int is_update_only)
         is_update_only ? L"ff-dlp-viewer - Güncelleme" : L"ff-dlp-viewer - İlk Kurulum",
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
         pos_x, pos_y, dlg_w, dlg_h,
-        hParent, NULL, hInst, &state
+        hParent, NULL, hInst, state
     );
 
-    if (!hWnd) return 0;
+    if (!hWnd) {
+        free(state);
+        return 0;
+    }
 
     if (hParent) EnableWindow(hParent, FALSE);
 
     /* Arka plan indirme iş parçacığını başlat */
-    HANDLE hThread = CreateThread(NULL, 0, bootstrap_worker_thread, &state, 0, NULL);
+    HANDLE hThread = CreateThread(NULL, 0, bootstrap_worker_thread, state, 0, NULL);
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
@@ -458,9 +509,25 @@ static int run_bootstrap_dialog(HWND hParent, int is_update_only)
         }
     }
 
+    int result = state->result;
+
     if (hThread) {
-        WaitForSingleObject(hThread, 5000);
+        DWORD wait_res = WaitForSingleObject(hThread, 5000);
         CloseHandle(hThread);
+        if (wait_res == WAIT_OBJECT_0) {
+            if (fail_out && fail_len > 0) {
+                wcsncpy(fail_out, state->fail_msg, fail_len - 1);
+                fail_out[fail_len - 1] = L'\0';
+            }
+            free(state);
+        }
+        /* WAIT_TIMEOUT: worker hâlâ state'i kullanıyor olabilir; dokunma (sızıntı bilinçli). */
+    } else {
+        if (fail_out && fail_len > 0) {
+            wcsncpy(fail_out, state->fail_msg, fail_len - 1);
+            fail_out[fail_len - 1] = L'\0';
+        }
+        free(state);
     }
 
     if (hParent) {
@@ -468,7 +535,7 @@ static int run_bootstrap_dialog(HWND hParent, int is_update_only)
         SetForegroundWindow(hParent);
     }
 
-    return state.result;
+    return result;
 }
 
 int bootstrapper_ensure_tools(HWND hParent)
@@ -482,30 +549,41 @@ int bootstrapper_ensure_tools(HWND hParent)
         return 1;
     }
 
-    int res = run_bootstrap_dialog(hParent, 0);
+    wchar_t fail_msg[256] = L"";
+    int res = run_bootstrap_dialog(hParent, 0, fail_msg, 256);
     if (!res) {
-        MessageBoxW(hParent,
-            L"Gerekli araçlar (yt-dlp veya ffmpeg) indirilemedi ya da işlem iptal edildi.\n"
-            L"Uygulamanın çalışabilmesi için internet bağlantınız açıkken yeniden başlatmayı deneyin.",
-            L"Kurulum Tamamlanamadı",
-            MB_OK | MB_ICONWARNING);
+        wchar_t msg[512];
+        if (fail_msg[0]) {
+            _snwprintf(msg, 512, L"%ls\n\nUygulamanın çalışabilmesi için internet bağlantınız açıkken yeniden başlatmayı deneyin.", fail_msg);
+        } else {
+            wcscpy(msg,
+                L"Gerekli araçlar (yt-dlp veya ffmpeg) indirilemedi ya da işlem iptal edildi.\n"
+                L"Uygulamanın çalışabilmesi için internet bağlantınız açıkken yeniden başlatmayı deneyin.");
+        }
+        msg[511] = L'\0';
+        MessageBoxW(hParent, msg, L"Kurulum Tamamlanamadı", MB_OK | MB_ICONWARNING);
     }
     return res;
 }
 
 int bootstrapper_update_ytdlp(HWND hParent)
 {
-    int res = run_bootstrap_dialog(hParent, 1);
+    wchar_t fail_msg[256] = L"";
+    int res = run_bootstrap_dialog(hParent, 1, fail_msg, 256);
     if (res) {
         MessageBoxW(hParent,
             L"yt-dlp başarıyla en güncel sürüme güncellendi.",
             L"Güncelleme Başarılı",
             MB_OK | MB_ICONINFORMATION);
     } else {
-        MessageBoxW(hParent,
-            L"yt-dlp güncellenirken bir hata oluştu veya işlem iptal edildi.",
-            L"Güncelleme Yapılamadı",
-            MB_OK | MB_ICONWARNING);
+        wchar_t msg[512];
+        if (fail_msg[0]) {
+            _snwprintf(msg, 512, L"%ls", fail_msg);
+        } else {
+            wcscpy(msg, L"yt-dlp güncellenirken bir hata oluştu veya işlem iptal edildi.");
+        }
+        msg[511] = L'\0';
+        MessageBoxW(hParent, msg, L"Güncelleme Yapılamadı", MB_OK | MB_ICONWARNING);
     }
     return res;
 }

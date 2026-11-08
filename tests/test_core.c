@@ -7,6 +7,7 @@
 #include "../src/detector.h"
 #include "../src/sanitization.h"
 #include "../src/codec_selector.h"
+#include "../src/cjson.h"
 
 static void test_detector(void)
 {
@@ -35,6 +36,25 @@ static void test_detector(void)
 
     PlatformInfo p5 = detect_platform(L"https://vimeo.com/123456");
     assert(p5.type == PLATFORM_GENERIC);
+
+    /* Host eşleşmesi: "x.com" alt dizesi başka alan adlarında da geçer. */
+    PlatformInfo p6 = detect_platform(L"https://www.dropbox.com/s/abc/file");
+    assert(p6.type == PLATFORM_GENERIC);
+
+    PlatformInfo p7 = detect_platform(L"https://linux.com/news");
+    assert(p7.type == PLATFORM_GENERIC);
+
+    PlatformInfo p8 = detect_platform(L"https://www.x.com/user/status/1");
+    assert(p8.type == PLATFORM_TWITTER);
+
+    PlatformInfo p9 = detect_platform(L"https://mobile.twitter.com/user/status/1");
+    assert(p9.type == PLATFORM_TWITTER);
+
+    PlatformInfo p10 = detect_platform(L"https://m.youtube.com/watch?v=abc");
+    assert(p10.type == PLATFORM_YOUTUBE);
+
+    PlatformInfo p11 = detect_platform(L"https://vm.tiktok.com/ZMabc123/");
+    assert(p11.type == PLATFORM_TIKTOK);
 
     printf("  -> Detector tests PASSED!\n");
 }
@@ -216,7 +236,96 @@ static void test_codec_selector(void)
     assert(!select_best_format(video_only, 1, L"audio", 0, 0, L"opus", &r13));
     assert(r13.reason[0] != L'\0');
 
+    /* Test 14: Force MP4 + H.264 video + yalnızca Opus ses ->
+       video kopyalanır, SADECE ses AAC'ye dönüşür (tam recode değil). */
+    StreamFormat h264_opus_only[] = {
+        {"137", "mp4", "avc1.640028", "none", 1920, 1080, 30, 3000, 0, 3000},
+        {"251", "webm", "none", "opus", 0, 0, 0, 0, 160, 160},
+    };
+    SelectionResult r14;
+    assert(select_best_format(h264_opus_only, 2, L"video", 1080, 1, L"opus", &r14));
+    assert(wcscmp(r14.video_format_id, L"137") == 0);
+    assert(wcscmp(r14.audio_format_id, L"251") == 0);
+    assert(wcscmp(r14.expected_container, L"mp4") == 0);
+    assert(r14.needs_reencode == 1);
+    assert(r14.audio_only_reencode == 1);
+
+    /* Test 15: Force MP4 + VP9 video -> tam dönüşüm gerekli (audio_only DEĞİL). */
+    StreamFormat vp9_mp4_only[] = {
+        {"248", "webm", "vp9", "none", 1920, 1080, 30, 2500, 0, 2500},
+        {"251", "webm", "none", "opus", 0, 0, 0, 0, 160, 160},
+    };
+    SelectionResult r15;
+    assert(select_best_format(vp9_mp4_only, 2, L"video", 1080, 1, L"opus", &r15));
+    assert(wcscmp(r15.video_codec, L"vp9") == 0);
+    assert(r15.needs_reencode == 1);
+    assert(r15.audio_only_reencode == 0);
+
     printf("  -> Codec Selector tests PASSED!\n");
+}
+
+static void test_cjson(void)
+{
+    printf("[TEST] cJSON testing...\n");
+
+    /* Basit nesne */
+    cJSON *root = cJSON_Parse("{\"title\":\"Merhaba\",\"duration\":215}");
+    assert(root != NULL);
+    cJSON *t = cJSON_GetObjectItem(root, "title");
+    assert(t && cJSON_IsString(t));
+    assert(strcmp(t->valuestring, "Merhaba") == 0);
+    cJSON *d = cJSON_GetObjectItem(root, "duration");
+    assert(d && cJSON_IsNumber(d) && d->valueint == 215);
+    /* Anahtar arama case-sensitive olmalı */
+    assert(cJSON_GetObjectItem(root, "TITLE") == NULL);
+    cJSON_Delete(root);
+
+    /* Surrogate pair: emoji \uD83D\uDE00 = U+1F600 = 4 bayt UTF-8 (F0 9F 98 80) */
+    cJSON *emo = cJSON_Parse("{\"t\":\"\\uD83D\\uDE00\"}");
+    assert(emo != NULL);
+    cJSON *et = cJSON_GetObjectItem(emo, "t");
+    assert(et && cJSON_IsString(et));
+    unsigned char *v = (unsigned char*)et->valuestring;
+    assert(v[0] == 0xF0 && v[1] == 0x9F && v[2] == 0x98 && v[3] == 0x80);
+    assert(v[4] == '\0');
+    cJSON_Delete(emo);
+
+    /* BMP dışı olmayan, Türkçe karakter kaçışı: \u00E7 = ç (2 bayt) */
+    cJSON *tr = cJSON_Parse("{\"t\":\"\\u00E7\"}");
+    assert(tr != NULL);
+    cJSON *trt = cJSON_GetObjectItem(tr, "t");
+    assert(trt && strcmp(trt->valuestring, "\xC3\xA7") == 0);
+    cJSON_Delete(tr);
+
+    /* Eşleşmemiş surrogate: geçersiz bayt dizisi üretmemeli */
+    cJSON *lone = cJSON_Parse("{\"t\":\"\\uD83D\"}");
+    assert(lone != NULL);
+    cJSON *lt = cJSON_GetObjectItem(lone, "t");
+    assert(lt && strcmp(lt->valuestring, "?") == 0);
+    cJSON_Delete(lone);
+
+    /* Kesik girdi: kaçış dizisi yarım kalmış -> NULL, çökme yok */
+    assert(cJSON_Parse("{\"t\":\"abc\\") == NULL);
+    assert(cJSON_Parse("{\"t\":\"abc") == NULL);
+    assert(cJSON_Parse("") == NULL);
+    assert(cJSON_Parse(NULL) == NULL);
+
+    /* Derinlik sınırı: 100 seviye iç içe dizi -> NULL */
+    char deep[256];
+    memset(deep, '[', 100);
+    memset(deep + 100, ']', 100);
+    deep[200] = '\0';
+    assert(cJSON_Parse(deep) == NULL);
+
+    /* Makul derinlik (10) sorun değil */
+    char ok_depth[64];
+    for (int i = 0; i < 10; i++) { ok_depth[i] = '['; ok_depth[10 + i] = ']'; }
+    ok_depth[20] = '\0';
+    cJSON *shallow = cJSON_Parse(ok_depth);
+    assert(shallow != NULL);
+    cJSON_Delete(shallow);
+
+    printf("  -> cJSON tests PASSED!\n");
 }
 
 int main(void)
@@ -228,6 +337,7 @@ int main(void)
     test_detector();
     test_sanitization();
     test_codec_selector();
+    test_cjson();
 
     printf("\nALL CORE C TESTS PASSED WITH 100%% SUCCESS!\n");
     return 0;

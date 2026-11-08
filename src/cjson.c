@@ -40,7 +40,10 @@ static const char *skip(const char *in)
     return in;
 }
 
-static const char *parse_value(cJSON *item, const char *value);
+static const char *parse_value(cJSON *item, const char *value, int depth);
+
+/* Aşırı iç içe (bozuk/saldırı) JSON'da stack taşmasını önler. */
+#define CJSON_MAX_DEPTH 64
 
 static const char *parse_number(cJSON *item, const char *num)
 {
@@ -54,6 +57,21 @@ static const char *parse_number(cJSON *item, const char *num)
     return endptr;
 }
 
+static unsigned int parse_hex4(const char *p, int *ok)
+{
+    unsigned int v = 0;
+    *ok = 1;
+    for (int i = 0; i < 4; i++) {
+        char c = p[i];
+        v <<= 4;
+        if (c >= '0' && c <= '9') v += (unsigned int)(c - '0');
+        else if (c >= 'a' && c <= 'f') v += (unsigned int)(c - 'a') + 10;
+        else if (c >= 'A' && c <= 'F') v += (unsigned int)(c - 'A') + 10;
+        else { *ok = 0; return 0; }
+    }
+    return v;
+}
+
 static const char *parse_string(cJSON *item, const char *str)
 {
     const char *ptr = str + 1;
@@ -62,9 +80,14 @@ static const char *parse_string(cJSON *item, const char *str)
     int len = 0;
     if (*str != '\"') return NULL;
 
-    while (*ptr != '\"' && *ptr && ++len)
+    while (*ptr && *ptr != '\"' && ++len)
     {
-        if (*ptr++ == '\\') ptr++;
+        if (*ptr == '\\')
+        {
+            ptr++;
+            if (!*ptr) return NULL;   /* kesik girdi: kaçış dizisi yarım kalmış */
+        }
+        ptr++;
     }
 
     out = (char*)cJSON_malloc(len + 1);
@@ -72,12 +95,13 @@ static const char *parse_string(cJSON *item, const char *str)
 
     ptr = str + 1;
     ptr2 = out;
-    while (*ptr != '\"' && *ptr)
+    while (*ptr && *ptr != '\"')
     {
         if (*ptr != '\\') *ptr2++ = *ptr++;
         else
         {
             ptr++;
+            if (!*ptr) { cJSON_free(out); return NULL; }  /* kesik girdi */
             switch (*ptr)
             {
                 case 'b': *ptr2++ = '\b'; break;
@@ -88,16 +112,34 @@ static const char *parse_string(cJSON *item, const char *str)
                 case '\"': case '\\': case '/': *ptr2++ = *ptr; break;
                 case 'u':
                 {
-                    /* Basic UTF-16 hex escape handling */
-                    unsigned int uc = 0;
-                    int i;
-                    for (i = 0; i < 4 && ptr[1]; i++)
+                    /* \uXXXX kaçışı. Emoji gibi karakterler UTF-16 surrogate
+                       çifti olarak gelir (\uD83D\uDE00); bunlar iki ayrı
+                       3 baytlık dizi yerine TEK doğru UTF-8 kod noktasına
+                       çevrilmelidir. */
+                    int hi_ok = 0, lo_ok = 0;
+                    unsigned int uc = parse_hex4(ptr + 1, &hi_ok);
+                    if (!hi_ok) { *ptr2++ = '?'; break; }
+                    ptr += 4;
+
+                    if (uc >= 0xD800 && uc <= 0xDBFF &&
+                        ptr[1] == '\\' && ptr[2] == 'u')
                     {
-                        char c = *++ptr;
-                        uc <<= 4;
-                        if (c >= '0' && c <= '9') uc += c - '0';
-                        else if (c >= 'a' && c <= 'f') uc += c - 'a' + 10;
-                        else if (c >= 'A' && c <= 'F') uc += c - 'A' + 10;
+                        unsigned int lo = parse_hex4(ptr + 3, &lo_ok);
+                        if (lo_ok && lo >= 0xDC00 && lo <= 0xDFFF)
+                        {
+                            unsigned int cp = 0x10000 + ((uc - 0xD800) << 10) + (lo - 0xDC00);
+                            *ptr2++ = (char)(0xF0 | (cp >> 18));
+                            *ptr2++ = (char)(0x80 | ((cp >> 12) & 0x3F));
+                            *ptr2++ = (char)(0x80 | ((cp >> 6) & 0x3F));
+                            *ptr2++ = (char)(0x80 | (cp & 0x3F));
+                            ptr += 6;  /* düşük surrogate kaçışını da tükettik */
+                            break;
+                        }
+                    }
+                    if (uc >= 0xD800 && uc <= 0xDFFF) {
+                        /* eşleşmemiş surrogate: geçersiz UTF-8 yerine belirleyici '?' */
+                        *ptr2++ = '?';
+                        break;
                     }
                     if (uc < 0x80) *ptr2++ = (char)uc;
                     else if (uc < 0x800) {
@@ -122,7 +164,7 @@ static const char *parse_string(cJSON *item, const char *str)
     return ptr;
 }
 
-static const char *parse_array(cJSON *item, const char *value)
+static const char *parse_array(cJSON *item, const char *value, int depth)
 {
     cJSON *child;
     if (*value != '[') return NULL;
@@ -133,7 +175,7 @@ static const char *parse_array(cJSON *item, const char *value)
 
     item->child = child = cJSON_New_Item();
     if (!item->child) return NULL;
-    value = skip(parse_value(child, skip(value)));
+    value = skip(parse_value(child, skip(value), depth + 1));
     if (!value) return NULL;
 
     while (*value == ',')
@@ -143,7 +185,7 @@ static const char *parse_array(cJSON *item, const char *value)
         child->next = new_item;
         new_item->prev = child;
         child = new_item;
-        value = skip(parse_value(child, skip(value + 1)));
+        value = skip(parse_value(child, skip(value + 1), depth + 1));
         if (!value) return NULL;
     }
 
@@ -151,7 +193,7 @@ static const char *parse_array(cJSON *item, const char *value)
     return NULL;
 }
 
-static const char *parse_object(cJSON *item, const char *value)
+static const char *parse_object(cJSON *item, const char *value, int depth)
 {
     cJSON *child;
     if (*value != '{') return NULL;
@@ -167,7 +209,7 @@ static const char *parse_object(cJSON *item, const char *value)
     child->string = child->valuestring;
     child->valuestring = NULL;
     if (*value != ':') return NULL;
-    value = skip(parse_value(child, skip(value + 1)));
+    value = skip(parse_value(child, skip(value + 1), depth + 1));
     if (!value) return NULL;
 
     while (*value == ',')
@@ -182,7 +224,7 @@ static const char *parse_object(cJSON *item, const char *value)
         child->string = child->valuestring;
         child->valuestring = NULL;
         if (*value != ':') return NULL;
-        value = skip(parse_value(child, skip(value + 1)));
+        value = skip(parse_value(child, skip(value + 1), depth + 1));
         if (!value) return NULL;
     }
 
@@ -190,16 +232,17 @@ static const char *parse_object(cJSON *item, const char *value)
     return NULL;
 }
 
-static const char *parse_value(cJSON *item, const char *value)
+static const char *parse_value(cJSON *item, const char *value, int depth)
 {
     if (!value) return NULL;
+    if (depth > CJSON_MAX_DEPTH) return NULL;
     if (!strncmp(value, "null", 4)) { item->type = cJSON_NULL; return value + 4; }
     if (!strncmp(value, "false", 5)) { item->type = cJSON_False; return value + 5; }
     if (!strncmp(value, "true", 4)) { item->type = cJSON_True; item->valueint = 1; return value + 4; }
     if (*value == '\"') return parse_string(item, value);
     if (*value == '-' || (*value >= '0' && *value <= '9')) return parse_number(item, value);
-    if (*value == '[') return parse_array(item, value);
-    if (*value == '{') return parse_object(item, value);
+    if (*value == '[') return parse_array(item, value, depth);
+    if (*value == '{') return parse_object(item, value, depth);
     return NULL;
 }
 
@@ -207,7 +250,7 @@ cJSON *cJSON_Parse(const char *value)
 {
     cJSON *c = cJSON_New_Item();
     if (!c) return NULL;
-    if (!parse_value(c, skip(value)))
+    if (!parse_value(c, skip(value), 0))
     {
         cJSON_Delete(c);
         return NULL;

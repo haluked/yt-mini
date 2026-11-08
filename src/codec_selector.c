@@ -546,6 +546,7 @@ static int select_video_mode(
             wcscpy(result->reason, L"Kullanıcı MP4 seçti; VP9 akışı H.264'e dönüştürülüp AAC ses ile birleştirilecek.");
         } else if (strcmp(best_norm_ac, "opus") == 0) {
             result->needs_reencode = 1;
+            result->audio_only_reencode = 1;
             wcscpy(result->warning, L"Opus ses akışı MP4 ile uyumlu olmadığından AAC'ye dönüştürülecektir (video akışı kopyalanır).");
             _snwprintf(result->reason, 255, L"%hs video kopyalanıyor, Opus ses AAC'ye dönüştürülüp MP4 yapılıyor.", best_norm_vc);
         } else {

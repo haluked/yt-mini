@@ -49,7 +49,7 @@ void cJSON_Delete(cJSON *item);
 int cJSON_GetArraySize(const cJSON *array);
 /* Retrieve item number "index" from array "array". Returns NULL if not found. */
 cJSON *cJSON_GetArrayItem(const cJSON *array, int index);
-/* Get item "string" from object. Case insensitive. */
+/* Get item "string" from object. Case sensitive (uses exact strcmp). */
 cJSON *cJSON_GetObjectItem(const cJSON * const object, const char * const string);
 cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON * const object, const char * const string);
 int cJSON_HasObjectItem(const cJSON *object, const char *string);
