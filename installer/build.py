@@ -28,7 +28,7 @@ DIST_DIR = PROJECT_ROOT / "dist"
 BIN_DIR = PROJECT_ROOT / "bin"
 INSTALLER_DIR = PROJECT_ROOT / "installer"
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 PORTABLE_NAME = f"ff-dlp-viewer-v{APP_VERSION}-portable"
 
 
@@ -107,7 +107,7 @@ def build_portable_package() -> Path:
     # 3. Kolay kullanım kılavuzu
     readme_txt = bundle_dir / "KULLANIM.txt"
     readme_txt.write_text(
-        "ff-dlp-viewer v2.1.0 (Taşınabilir Sürüm)\n"
+        "ff-dlp-viewer v2.2.0 (Taşınabilir Sürüm)\n"
         "===========================================\n\n"
         "Bu paket tüm bileşenleri (ff-dlp-viewer, yt-dlp, ffmpeg) tek parça olarak içerir.\n"
         "Python, pip veya harici bir kurulum yapmanıza gerek yoktur.\n\n"

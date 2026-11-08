@@ -9,7 +9,7 @@
 #include <wchar.h>
 #include <stdio.h>
 
-#define APP_VERSION_STR L"2.1.0-light"
+#define APP_VERSION_STR L"2.2.0-light"
 /* Arayüz önizleme derlemeleri (-DGB_PREVIEW) mevcut uygulamayla aynı anda
    çalışabilsin diye ayrı mutex kullanır. */
 #ifdef GB_PREVIEW

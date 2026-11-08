@@ -18,12 +18,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Haluk"
             VALUE "FileDescription",  "Hafif Medya Indirici (Win32 Native)"
-            VALUE "FileVersion",      "2.1.0.0"
+            VALUE "FileVersion",      "2.2.0.0"
             VALUE "InternalName",     "ff-dlp-viewer-light"
             VALUE "LegalCopyright",   "MIT License"
             VALUE "OriginalFilename", "ff-dlp-viewer.exe"
             VALUE "ProductName",      "ff-dlp-viewer"
-            VALUE "ProductVersion",   "2.1.0.0"
+            VALUE "ProductVersion",   "2.2.0.0"
         END
     END
     BLOCK "VarFileInfo"
