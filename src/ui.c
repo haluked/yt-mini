@@ -4,6 +4,7 @@
 #include "codec_selector.h"
 #include "sanitization.h"
 #include "bootstrapper.h"
+#include "gb_ui.h"
 
 #include <windows.h>
 #include <commctrl.h>
@@ -42,6 +43,8 @@
 #define IDC_BTN_OPEN_LOCATION 1018
 #define IDC_BTN_CHOOSE_FOLDER 1019
 #define IDC_STATIC_FOLDER     1020
+#define IDC_BTN_MIN           1021
+#define IDC_BTN_CLOSE         1022
 
 #define ID_TRAY_RESTORE       2001
 #define ID_TRAY_EXIT          2002
@@ -51,7 +54,7 @@
 #define BASE_CLIENT_H         485
 #define BASE_MIN_CLIENT_W     620
 
-#define APP_WINDOW_STYLE      (WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX)
+#define APP_WINDOW_STYLE      (WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU)
 #define APP_WINDOW_EX_STYLE   (WS_EX_APPWINDOW | WS_EX_CONTROLPARENT)
 
 static HWND g_hWnd = NULL;
@@ -69,13 +72,43 @@ static HWND g_hComboRes = NULL;
 static HWND g_hChkForceMp4 = NULL;
 static HWND g_hComboAudio = NULL;
 static HWND g_hStaticReason = NULL;
-static HWND g_hProgressBar = NULL;
 static HWND g_hStaticStatus = NULL;
 static HWND g_hStaticFolder = NULL;
 static HWND g_hBtnDownload = NULL;
 static HWND g_hBtnCancel = NULL;
 static HWND g_hBtnOpenLocation = NULL;
 static HWND g_hBtnChooseFolder = NULL;
+static HWND g_hBtnMin = NULL;
+static HWND g_hBtnClose = NULL;
+
+/* Game Boy arayüz durumu (yerel radio/checkbox/combobox yerine) */
+static int g_mode_audio = 0;
+static int g_force_mp4 = 0;
+static int g_res_sel = 0;
+static int g_aud_sel = 0;
+static wchar_t g_res_items[32][96];
+static int g_res_count = 0;
+static wchar_t g_aud_items[4][96];
+static int g_aud_count = 0;
+static int g_progress = 0;
+
+static RECT g_rc_panel_url;
+static RECT g_rc_panel_media;
+static RECT g_rc_panel_download;
+static RECT g_rc_progress;
+static RECT g_rc_edit;
+
+/* Owner-draw butonların hover durumu */
+#define GB_MAX_TRACKED 16
+typedef struct {
+    HWND hwnd;
+    WNDPROC old_proc;
+    int hover;
+} GbTrackedButton;
+
+static GbTrackedButton g_tracked[GB_MAX_TRACKED];
+static int g_tracked_count = 0;
+
 
 static HFONT g_fontTitle = NULL;
 static HFONT g_fontBold = NULL;
@@ -159,6 +192,7 @@ static void create_fonts(void);
 static void apply_control_fonts(void);
 static void update_folder_label(void);
 static void save_download_dir(void);
+static void refresh_dropdown_labels(void);
 static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wchar_t *url);
 static void apply_toast_to_main(ToastState *state, int auto_start_download);
 static void trigger_autofetch(const wchar_t *url);
@@ -166,6 +200,172 @@ static void trigger_autofetch(const wchar_t *url);
 static int S(int value)
 {
     return MulDiv(value, (int)g_dpi, 96);
+}
+
+/* ------------------------------------------------------------------
+   Owner-draw butonlarda fare üstünde olma durumu.
+   GDI'nin DRAWITEMSTRUCT'ı hover bilmediği için kendi takibimizi yapıyoruz.
+   ------------------------------------------------------------------ */
+static GbTrackedButton *tracked_find(HWND hwnd)
+{
+    int i;
+    for (i = 0; i < g_tracked_count; i++) {
+        if (g_tracked[i].hwnd == hwnd) return &g_tracked[i];
+    }
+    return NULL;
+}
+
+static LRESULT CALLBACK TrackedButtonProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    GbTrackedButton *t = tracked_find(hwnd);
+    WNDPROC old = t ? t->old_proc : NULL;
+
+    if (msg == WM_MOUSEMOVE && t) {
+        if (!t->hover) {
+            t->hover = 1;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        {
+            TRACKMOUSEEVENT tme;
+            tme.cbSize = sizeof(tme);
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+        }
+    } else if (msg == WM_MOUSELEAVE && t) {
+        if (t->hover) {
+            t->hover = 0;
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+    }
+
+    return old ? CallWindowProcW(old, hwnd, msg, wParam, lParam)
+               : DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+static void track_button(HWND hwnd)
+{
+    GbTrackedButton *t;
+    if (!hwnd || g_tracked_count >= GB_MAX_TRACKED) return;
+    t = &g_tracked[g_tracked_count++];
+    t->hwnd = hwnd;
+    t->hover = 0;
+    t->old_proc = (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)TrackedButtonProc);
+}
+
+static int tracked_hover(HWND hwnd)
+{
+    GbTrackedButton *t = tracked_find(hwnd);
+    return t ? t->hover : 0;
+}
+
+/* Panel zemin fırçası (static/edit denetimlerinin arka planı) */
+static HBRUSH panel_brush(void)
+{
+    static HBRUSH brush = NULL;
+    if (!brush) brush = CreateSolidBrush(GB_LIGHTEST);
+    return brush;
+}
+
+/* ------------------------------------------------------------------
+   Açılır listelerin içeriği
+   ------------------------------------------------------------------ */
+static void fill_res_items(void)
+{
+    int i;
+    g_res_count = 0;
+    wcsncpy(g_res_items[g_res_count], L"EN YÜKSEK KALİTE", 95);
+    g_res_items[g_res_count][95] = L'\0';
+    g_res_count++;
+
+    for (i = 0; i < g_current_meta.num_resolutions && g_res_count < 32; i++) {
+        wchar_t *dst = g_res_items[g_res_count];
+        int h = g_current_meta.available_resolutions[i];
+        if (h >= 2160) _snwprintf(dst, 95, L"%dp  4K ULTRA HD", h);
+        else if (h >= 1440) _snwprintf(dst, 95, L"%dp  2K QHD", h);
+        else if (h >= 1080) _snwprintf(dst, 95, L"%dp  FULL HD", h);
+        else if (h >= 720) _snwprintf(dst, 95, L"%dp  HD", h);
+        else _snwprintf(dst, 95, L"%dp", h);
+        dst[95] = L'\0';
+        g_res_count++;
+    }
+    if (g_res_sel >= g_res_count) g_res_sel = 0;
+}
+
+static void fill_aud_items(void)
+{
+    g_aud_count = 0;
+    wcsncpy(g_aud_items[g_aud_count], L"OPUS  EN YÜKSEK KALİTE", 95);
+    g_aud_items[g_aud_count][95] = L'\0';
+    g_aud_count++;
+
+    wcsncpy(g_aud_items[g_aud_count], L"AAC  M4A  APPLE UYUMLU", 95);
+    g_aud_items[g_aud_count][95] = L'\0';
+    g_aud_count++;
+
+    if (g_mp3_available) {
+        wcsncpy(g_aud_items[g_aud_count], L"MP3  EVRENSEL FORMAT", 95);
+        g_aud_items[g_aud_count][95] = L'\0';
+        g_aud_count++;
+    }
+    if (g_aud_sel >= g_aud_count) g_aud_sel = 0;
+}
+
+static void on_res_picked(int index, void *user)
+{
+    (void)user;
+    g_res_sel = index;
+    refresh_dropdown_labels();
+    update_format_selection();
+    InvalidateRect(g_hWnd, NULL, FALSE);
+}
+
+static void on_aud_picked(int index, void *user)
+{
+    (void)user;
+    g_aud_sel = index;
+    refresh_dropdown_labels();
+    update_format_selection();
+    InvalidateRect(g_hWnd, NULL, FALSE);
+}
+
+static void open_res_dropdown(void)
+{
+    const wchar_t *ptrs[32];
+    RECT anchor;
+    int i;
+    if (g_res_count <= 0) fill_res_items();
+    if (g_res_count <= 0) return;
+    for (i = 0; i < g_res_count; i++) ptrs[i] = g_res_items[i];
+
+    GetWindowRect(g_hComboRes, &anchor);
+    MapWindowPoints(NULL, g_hWnd, (POINT*)&anchor, 2);
+    gb_dropdown_open(g_hWnd, &anchor, ptrs, g_res_count, g_res_sel, on_res_picked, NULL);
+}
+
+static void open_aud_dropdown(void)
+{
+    const wchar_t *ptrs[4];
+    RECT anchor;
+    int i;
+    if (g_aud_count <= 0) fill_aud_items();
+    if (g_aud_count <= 0) return;
+    for (i = 0; i < g_aud_count; i++) ptrs[i] = g_aud_items[i];
+
+    GetWindowRect(g_hComboAudio, &anchor);
+    MapWindowPoints(NULL, g_hWnd, (POINT*)&anchor, 2);
+    gb_dropdown_open(g_hWnd, &anchor, ptrs, g_aud_count, g_aud_sel, on_aud_picked, NULL);
+}
+
+/* Açılır butonun üzerindeki metni günceller. */
+static void refresh_dropdown_labels(void)
+{
+    if (g_res_count > 0 && g_res_sel >= 0 && g_res_sel < g_res_count) {
+        SetWindowTextW(g_hComboRes, g_res_items[g_res_sel]);
+    }
+    if (g_aud_count > 0 && g_aud_sel >= 0 && g_aud_sel < g_aud_count) {
+        SetWindowTextW(g_hComboAudio, g_aud_items[g_aud_sel]);
+    }
 }
 
 static UINT query_window_dpi(HWND hWnd)
@@ -312,7 +512,7 @@ static void update_folder_label(void)
 {
     if (!g_hStaticFolder) return;
     wchar_t label[MAX_PATH + 32];
-    _snwprintf(label, MAX_PATH + 31, L"📁 %ls", g_download_dir);
+    _snwprintf(label, MAX_PATH + 31, L"> %ls", g_download_dir);
     label[MAX_PATH + 31] = L'\0';
     SetWindowTextW(g_hStaticFolder, label);
 }
@@ -329,14 +529,16 @@ static void create_fonts(void)
 {
     destroy_fonts();
 
-    g_fontTitle = CreateFontW(S(20), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    g_fontBold = CreateFontW(S(14), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    g_fontNormal = CreateFontW(S(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-    g_fontSmall = CreateFontW(S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+    /* 8-bit hissi: Consolas + anti-aliasing kapalı. Türkçe karakterler
+       Consolas'ta tamdır; harici font dosyası taşımaya gerek yok. */
+    g_fontTitle = CreateFontW(-S(20), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
+    g_fontBold = CreateFontW(-S(14), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
+    g_fontNormal = CreateFontW(-S(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
+    g_fontSmall = CreateFontW(-S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
 }
 
 static void apply_control_fonts(void)
@@ -381,8 +583,9 @@ static void layout_controls(void)
 
     /* Grup 1: bağlantı */
     SetWindowPos(g_hGrpUrl, NULL, x20, S(45), inner_w, S(65), SWP_NOZORDER);
+    SetRect(&g_rc_panel_url, x20, S(45), x20 + inner_w, S(45) + S(65));
 
-    int fetch_w = S(90);
+    int fetch_w = S(100);
     int paste_w = S(80);
     int gap = S(8);
     int fetch_x = cw - x32 - fetch_w;
@@ -390,19 +593,21 @@ static void layout_controls(void)
     int edit_w = paste_x - gap - x32;
     if (edit_w < S(150)) edit_w = S(150);
 
-    SetWindowPos(g_hEditUrl, NULL, x32, S(68), edit_w, S(25), SWP_NOZORDER);
+    SetWindowPos(g_hEditUrl, NULL, x32, S(70), edit_w, S(22), SWP_NOZORDER);
+    SetRect(&g_rc_edit, x32, S(70), x32 + edit_w, S(70) + S(22));
     SetWindowPos(g_hBtnPaste, NULL, paste_x, S(67), paste_w, S(27), SWP_NOZORDER);
     SetWindowPos(g_hBtnFetch, NULL, fetch_x, S(67), fetch_w, S(27), SWP_NOZORDER);
 
     /* Grup 2: medya ve format */
     SetWindowPos(g_hGrpMedia, NULL, x20, S(118), inner_w, S(212), SWP_NOZORDER);
+    SetRect(&g_rc_panel_media, x20, S(118), x20 + inner_w, S(118) + S(212));
     SetWindowPos(g_hStaticTitle, NULL, x32, S(140), content_w, S(20), SWP_NOZORDER);
     SetWindowPos(g_hStaticMeta, NULL, x32, S(162), content_w, S(18), SWP_NOZORDER);
-    SetWindowPos(g_hRadioVideo, NULL, x32, S(188), S(150), S(22), SWP_NOZORDER);
-    SetWindowPos(g_hRadioAudio, NULL, S(195), S(188), S(160), S(22), SWP_NOZORDER);
-    SetWindowPos(g_hComboRes, NULL, x32, S(216), S(220), S(200), SWP_NOZORDER);
-    SetWindowPos(g_hChkForceMp4, NULL, S(265), S(217), S(180), S(22), SWP_NOZORDER);
-    SetWindowPos(g_hComboAudio, NULL, x32, S(216), S(220), S(200), SWP_NOZORDER);
+    SetWindowPos(g_hRadioVideo, NULL, x32, S(188), S(150), S(24), SWP_NOZORDER);
+    SetWindowPos(g_hRadioAudio, NULL, S(195), S(188), S(160), S(24), SWP_NOZORDER);
+    SetWindowPos(g_hComboRes, NULL, x32, S(216), S(220), S(26), SWP_NOZORDER);
+    SetWindowPos(g_hChkForceMp4, NULL, S(265), S(217), S(180), S(24), SWP_NOZORDER);
+    SetWindowPos(g_hComboAudio, NULL, x32, S(216), S(220), S(26), SWP_NOZORDER);
     SetWindowPos(g_hStaticReason, NULL, x32, S(248), content_w, S(34), SWP_NOZORDER);
 
     int choose_btn_w = S(110);
@@ -416,7 +621,8 @@ static void layout_controls(void)
 
     /* Grup 3: indirme durumu */
     SetWindowPos(g_hGrpDownload, NULL, x20, S(338), inner_w, S(130), SWP_NOZORDER);
-    SetWindowPos(g_hProgressBar, NULL, x32, S(360), content_w, S(20), SWP_NOZORDER);
+    SetRect(&g_rc_panel_download, x20, S(338), x20 + inner_w, S(338) + S(130));
+    SetRect(&g_rc_progress, x32, S(360), x32 + content_w, S(360) + S(20));
     SetWindowPos(g_hStaticStatus, NULL, x32, S(386), content_w, S(20), SWP_NOZORDER);
 
     int btn_y = S(416);
@@ -427,6 +633,16 @@ static void layout_controls(void)
     SetWindowPos(g_hBtnDownload, NULL, x32, btn_y, S(120), btn_h, SWP_NOZORDER);
     SetWindowPos(g_hBtnCancel, NULL, S(160), btn_y, S(90), btn_h, SWP_NOZORDER);
     SetWindowPos(g_hBtnOpenLocation, NULL, open_x, btn_y, open_w, btn_h, SWP_NOZORDER);
+
+    /* Başlık çubuğu düğmeleri */
+    {
+        int close_w = S(26);
+        int close_h = S(24);
+        int close_x = cw - S(14) - close_w;
+        int min_x = close_x - S(6) - close_w;
+        SetWindowPos(g_hBtnClose, NULL, close_x, S(9), close_w, close_h, SWP_NOZORDER);
+        SetWindowPos(g_hBtnMin, NULL, min_x, S(9), close_w, close_h, SWP_NOZORDER);
+    }
 
     InvalidateRect(g_hWnd, NULL, TRUE);
 }
@@ -563,7 +779,9 @@ static void trigger_fetch(void)
     GetWindowTextW(g_hEditUrl, url, 1023);
     trim_ws(url);
     if (!is_valid_url(url)) {
-        MessageBoxW(g_hWnd, L"Lütfen geçerli bir video veya ses bağlantısı girin.", L"Geçersiz Bağlantı", MB_OK | MB_ICONWARNING);
+        gb_message_box(g_hWnd, L"GEÇERSİZ BAĞLANTI",
+            L"Lütfen geçerli bir video veya ses bağlantısı girin.",
+            MB_OK | MB_ICONWARNING);
         return;
     }
 
@@ -607,7 +825,7 @@ static void trigger_fetch(void)
 
 static void update_format_selection(void)
 {
-    int is_video = (SendMessageW(g_hRadioVideo, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    int is_video = !g_mode_audio;
 
     /* Görünürlüğü her durumda güncelle: medya yokken sekme değiştirilirse
        çözünürlük/ses kutuları yine doğru takas edilmeli. */
@@ -633,16 +851,16 @@ static void update_format_selection(void)
     int ok = 0;
 
     if (is_video) {
-        int cur_sel = (int)SendMessageW(g_hComboRes, CB_GETCURSEL, 0, 0);
+        int cur_sel = g_res_sel;
         if (cur_sel > 0 && cur_sel - 1 < g_current_meta.num_resolutions) {
             target_res = g_current_meta.available_resolutions[cur_sel - 1];
         }
 
-        int force_mp4 = (SendMessageW(g_hChkForceMp4, BM_GETCHECK, 0, 0) == BST_CHECKED);
+        int force_mp4 = g_force_mp4;
         ok = select_best_format(g_current_meta.formats, g_current_meta.format_count,
                                 L"video", target_res, force_mp4, L"opus", &g_current_selection);
     } else {
-        int aud_sel = (int)SendMessageW(g_hComboAudio, CB_GETCURSEL, 0, 0);
+        int aud_sel = g_aud_sel;
         const wchar_t *pref = (aud_sel == 1) ? L"aac" : ((aud_sel == 2) ? L"mp3" : L"opus");
         ok = select_best_format(g_current_meta.formats, g_current_meta.format_count,
                                 L"audio", 0, 0, pref, &g_current_selection);
@@ -684,7 +902,9 @@ static void trigger_download(void)
     GetWindowTextW(g_hEditUrl, url, 1023);
     trim_ws(url);
     if (!is_valid_url(url)) {
-        MessageBoxW(g_hWnd, L"Lütfen geçerli bir video veya ses bağlantısı girin.", L"Geçersiz Bağlantı", MB_OK | MB_ICONWARNING);
+        gb_message_box(g_hWnd, L"GEÇERSİZ BAĞLANTI",
+            L"Lütfen geçerli bir video veya ses bağlantısı girin.",
+            MB_OK | MB_ICONWARNING);
         return;
     }
 
@@ -718,7 +938,8 @@ static void trigger_download(void)
             const wchar_t *reason = g_current_selection.reason[0]
                 ? g_current_selection.reason
                 : L"Bu bağlantıdan indirilebilecek uygun bir akış bulunamadı.";
-            MessageBoxW(g_hWnd, reason, L"İndirilemiyor", MB_OK | MB_ICONWARNING);
+            gb_message_box(g_hWnd, L"İNDİRİLEMİYOR", reason,
+                MB_OK | MB_ICONWARNING);
             return;
         }
     }
@@ -728,7 +949,8 @@ static void trigger_download(void)
     g_last_downloaded_file[0] = L'\0';
     EnableWindow(g_hBtnDownload, FALSE);
     EnableWindow(g_hBtnCancel, TRUE);
-    SendMessageW(g_hProgressBar, PBM_SETPOS, 0, 0);
+    g_progress = 0;
+    InvalidateRect(g_hWnd, &g_rc_progress, FALSE);
     SetWindowTextW(g_hStaticStatus, L"İndirme başlatılıyor...");
 
     if (!engine_download_async(url, &g_current_selection, g_download_dir, on_download_tick_callback, NULL)) {
@@ -774,19 +996,9 @@ static void apply_toast_to_main(ToastState *state, int auto_start_download)
         g_current_meta.format_count);
     SetWindowTextW(g_hStaticMeta, meta_info);
 
-    SendMessageW(g_hComboRes, CB_RESETCONTENT, 0, 0);
-    SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)L"En Yüksek Kalite (Varsayılan)");
-    for (int i = 0; i < g_current_meta.num_resolutions; i++) {
-        wchar_t res_str[64];
-        int h = g_current_meta.available_resolutions[i];
-        if (h >= 2160) _snwprintf(res_str, 64, L"%dp (4K Ultra HD)", h);
-        else if (h >= 1440) _snwprintf(res_str, 64, L"%dp (2K QHD)", h);
-        else if (h >= 1080) _snwprintf(res_str, 64, L"%dp (Full HD)", h);
-        else if (h >= 720) _snwprintf(res_str, 64, L"%dp (HD)", h);
-        else _snwprintf(res_str, 64, L"%dp", h);
-        SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)res_str);
-    }
-    SendMessageW(g_hComboRes, CB_SETCURSEL, 0, 0);
+    g_res_sel = 0;
+    fill_res_items();
+    refresh_dropdown_labels();
 
     update_format_selection();
     InvalidateRect(g_hWnd, NULL, TRUE);
@@ -803,14 +1015,14 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
 {
     switch (msg) {
         case WM_CREATE: {
-            g_toast_state.font_badge = CreateFontW(S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_toast_state.font_title = CreateFontW(S(14), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_toast_state.font_small = CreateFontW(S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-            g_toast_state.font_btn = CreateFontW(S(13), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            g_toast_state.font_badge = CreateFontW(-S(12), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
+            g_toast_state.font_title = CreateFontW(-S(14), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
+            g_toast_state.font_small = CreateFontW(-S(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
+            g_toast_state.font_btn = CreateFontW(-S(13), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
 
             /* 4 saniyelik otomatik kaybolma zamanlayıcısı */
             SetTimer(hWnd, 1, 4000, NULL);
@@ -824,76 +1036,80 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
+        case WM_ERASEBKGND:
+            return 1;
+
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
             RECT rcClient;
             GetClientRect(hWnd, &rcClient);
 
-            /* Arka plan: Modern temiz kart */
-            HBRUSH bgBrush = CreateSolidBrush(RGB(255, 255, 255));
-            FillRect(hdc, &rcClient, bgBrush);
-            DeleteObject(bgBrush);
+            /* Game Boy kartı */
+            gb_fill(hdc, &rcClient, GB_LIGHTEST);
+            gb_frame(hdc, &rcClient, GB_DARKEST, S(2));
 
-            /* İnce kenarlık */
-            HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(220, 226, 235));
-            HGDIOBJ oldPen = SelectObject(hdc, borderPen);
-            HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-            Rectangle(hdc, 0, 0, rcClient.right, rcClient.bottom);
-            SelectObject(hdc, oldPen);
-            SelectObject(hdc, oldBrush);
-            DeleteObject(borderPen);
+            /* Üst şerit */
+            {
+                RECT bar = { S(2), S(2), rcClient.right - S(2), S(24) };
+                gb_fill(hdc, &bar, GB_DARKEST);
+            }
 
-            SetBkMode(hdc, TRANSPARENT);
-
-            /* 1. Kırmızı YouTube Rozeti */
-            RECT rcBadge = { S(14), S(10), S(14 + 80), S(10 + 18) };
-            HBRUSH redBrush = CreateSolidBrush(RGB(220, 38, 38));
-            FillRect(hdc, &rcBadge, redBrush);
-            DeleteObject(redBrush);
-
-            SetTextColor(hdc, RGB(255, 255, 255));
-            SelectObject(hdc, g_toast_state.font_badge);
-            DrawTextW(hdc, L"▶ YOUTUBE", -1, &rcBadge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            /* 1. Platform rozeti */
+            {
+                RECT rcBadge = { S(8), S(4), S(86), S(22) };
+                wchar_t badge[40];
+                wcsncpy(badge, g_toast_state.meta.platform.badge_label, 39);
+                badge[39] = L'\0';
+                if (badge[0] == L'\0') wcscpy(badge, L"WEB");
+                gb_fill(hdc, &rcBadge, GB_DARK);
+                gb_text(hdc, g_toast_state.font_badge, GB_LIGHTEST, &rcBadge, badge,
+                        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
 
             /* Süre bilgisi */
             if (g_toast_state.meta.duration_str[0] != L'\0') {
-                RECT rcDuration = { S(14 + 80 + 8), S(10), S(14 + 80 + 8 + 80), S(10 + 18) };
-                SetTextColor(hdc, RGB(100, 116, 139));
-                SelectObject(hdc, g_toast_state.font_small);
-                DrawTextW(hdc, g_toast_state.meta.duration_str, -1, &rcDuration, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                RECT rcDuration = { S(96), S(4), S(176), S(22) };
+                gb_text(hdc, g_toast_state.font_small, GB_LIGHTEST, &rcDuration,
+                        g_toast_state.meta.duration_str,
+                        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
 
-            /* Kapat Butonu (✕) */
-            RECT rcClose = { rcClient.right - S(24), S(6), rcClient.right - S(6), S(24) };
-            g_toast_state.rc_close = rcClose;
-            SetTextColor(hdc, g_toast_state.close_hover ? RGB(220, 38, 38) : RGB(148, 163, 184));
-            SelectObject(hdc, g_toast_state.font_badge);
-            DrawTextW(hdc, L"✕", -1, &rcClose, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            /* Kapat Butonu */
+            {
+                RECT rcClose = { rcClient.right - S(26), S(2), rcClient.right - S(2), S(24) };
+                g_toast_state.rc_close = rcClose;
+                gb_text(hdc, g_toast_state.font_badge,
+                        g_toast_state.close_hover ? GB_LIGHT : GB_LIGHTEST,
+                        &rcClose, L"X",
+                        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
 
             /* 2. Video Başlığı */
-            RECT rcTitle = { S(14), S(34), rcClient.right - S(108), S(34 + 36) };
-            SetTextColor(hdc, RGB(30, 41, 59));
-            SelectObject(hdc, g_toast_state.font_title);
-            DrawTextW(hdc, g_toast_state.meta.title, -1, &rcTitle, DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
+            {
+                RECT rcTitle = { S(10), S(30), rcClient.right - S(108), S(66) };
+                gb_text(hdc, g_toast_state.font_title, GB_DARKEST, &rcTitle,
+                        g_toast_state.meta.title,
+                        DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
+            }
 
             /* 3. Alt Açıklama */
-            RECT rcSub = { S(14), S(72), rcClient.right - S(108), S(72 + 16) };
-            SetTextColor(hdc, RGB(100, 116, 139));
-            SelectObject(hdc, g_toast_state.font_small);
-            DrawTextW(hdc, L"İndirmeye hazır • 4 sn içinde kapanır", -1, &rcSub, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            {
+                RECT rcSub = { S(10), S(70), rcClient.right - S(108), S(88) };
+                gb_text(hdc, g_toast_state.font_small, GB_DARK, &rcSub,
+                        L"İNDİRMEYE HAZIR - 4 SN SONRA KAPANIR",
+                        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
 
-            /* 4. Yeşil İndir Butonu */
-            RECT rcBtn = { rcClient.right - S(98), S(34), rcClient.right - S(14), S(34 + 36) };
-            g_toast_state.rc_btn = rcBtn;
-            COLORREF btnColor = g_toast_state.btn_hover ? RGB(46, 160, 67) : RGB(35, 134, 54);
-            HBRUSH greenBrush = CreateSolidBrush(btnColor);
-            FillRect(hdc, &rcBtn, greenBrush);
-            DeleteObject(greenBrush);
-
-            SetTextColor(hdc, RGB(255, 255, 255));
-            SelectObject(hdc, g_toast_state.font_btn);
-            DrawTextW(hdc, L"⬇ İndir", -1, &rcBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            /* 4. İndir Butonu */
+            {
+                RECT rcBtn = { rcClient.right - S(98), S(30), rcClient.right - S(10), S(66) };
+                g_toast_state.rc_btn = rcBtn;
+                gb_fill(hdc, &rcBtn, g_toast_state.btn_hover ? GB_DARK : GB_DARKEST);
+                gb_frame(hdc, &rcBtn, GB_DARKEST, S(2));
+                gb_text(hdc, g_toast_state.font_btn, GB_LIGHTEST, &rcBtn, L"İNDİR",
+                        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
 
             EndPaint(hWnd, &ps);
             return 0;
@@ -995,7 +1211,7 @@ static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wch
     wc.lpfnWndProc = ToastWndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_HAND);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hbrBackground = NULL;
     wc.lpszClassName = toastClass;
     wc.style = CS_DROPSHADOW | CS_HREDRAW | CS_VREDRAW;
     RegisterClassExW(&wc);
@@ -1013,7 +1229,7 @@ static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wch
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         toastClass,
         L"ff-dlp-viewer Bildirim",
-        WS_POPUP | WS_BORDER,
+        WS_POPUP,
         toast_x, toast_y, toast_w, toast_h,
         NULL, NULL, hInst, NULL
     );
@@ -1081,6 +1297,145 @@ static void show_tray_menu(HWND hWnd)
     DestroyMenu(hMenu);
 }
 
+static void draw_panel(HDC hdc, const RECT *prc, const wchar_t *title)
+{
+    RECT tab;
+    SIZE sz;
+    HGDIOBJ old;
+    int text_w = 0;
+    int tab_h = S(20);
+    int tab_w;
+
+    gb_fill(hdc, prc, GB_LIGHTEST);
+    gb_frame(hdc, prc, GB_DARKEST, S(2));
+
+    /* Panel başlığı: üst kenara yapışık koyu şerit */
+    old = SelectObject(hdc, g_fontBold);
+    if (GetTextExtentPoint32W(hdc, title, (int)wcslen(title), &sz)) text_w = sz.cx;
+    SelectObject(hdc, old);
+
+    tab_w = text_w + S(20);
+    tab.left = prc->left + S(2);
+    tab.top = prc->top + S(2);
+    tab.right = tab.left + tab_w;
+    tab.bottom = tab.top + tab_h;
+    gb_fill(hdc, &tab, GB_DARKEST);
+
+    {
+        RECT tr = tab;
+        tr.left += S(8);
+        tr.right -= S(8);
+        gb_text(hdc, g_fontBold, GB_LIGHTEST, &tr, title,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+}
+
+static void draw_progress(HDC hdc, const RECT *prc, int percent)
+{
+    RECT inner;
+    int inner_w, fill_w, x;
+    int block, gap;
+
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+
+    gb_fill(hdc, prc, GB_LIGHT);
+    gb_frame(hdc, prc, GB_DARKEST, S(2));
+
+    inner = *prc;
+    InflateRect(&inner, -S(3), -S(3));
+    inner_w = inner.right - inner.left;
+    if (inner_w <= 0) return;
+
+    fill_w = MulDiv(inner_w, percent, 100);
+    block = S(7);
+    gap = S(2);
+    if (block < 2) block = 2;
+    if (gap < 1) gap = 1;
+
+    for (x = 0; x < fill_w; x += block + gap) {
+        RECT b;
+        b.left = inner.left + x;
+        b.top = inner.top;
+        b.right = b.left + block;
+        if (b.right > inner.left + fill_w) b.right = inner.left + fill_w;
+        b.bottom = inner.bottom;
+        if (b.right > b.left) gb_fill(hdc, &b, GB_DARKEST);
+    }
+}
+
+static void paint_main(HWND hWnd, HDC hdc)
+{
+    RECT rc;
+    RECT inner;
+    RECT title_rc;
+    RECT badge_rc;
+    RECT edit_frame;
+    wchar_t badge[32];
+    int icon_scale;
+
+    GetClientRect(hWnd, &rc);
+
+    /* Sayfa zemini + konsol çerçevesi */
+    gb_fill(hdc, &rc, GB_LIGHT);
+    gb_frame(hdc, &rc, GB_DARK, S(6));
+    inner = rc;
+    InflateRect(&inner, -S(6), -S(6));
+    gb_frame(hdc, &inner, GB_DARKEST, S(1));
+
+    /* Başlık */
+    icon_scale = S(2);
+    if (icon_scale < 2) icon_scale = 2;
+    gb_icon(hdc, S(22), S(14), icon_scale, 0);
+
+    title_rc.left = S(22) + 12 * icon_scale + S(10);
+    title_rc.top = S(10);
+    title_rc.right = rc.right - S(200);
+    title_rc.bottom = S(38);
+    gb_text(hdc, g_fontTitle, GB_DARKEST, &title_rc, L"FF-DLP-VIEWER",
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+    /* Platform rozeti */
+    if (g_has_meta) {
+        wcsncpy(badge, g_current_meta.platform.badge_label, 31);
+        badge[31] = L'\0';
+    } else {
+        wcscpy(badge, L"WEB");
+    }
+    badge_rc.right = rc.right - S(14) - S(26) * 2 - S(6) - S(10);
+    badge_rc.left = badge_rc.right - S(82);
+    badge_rc.top = S(14);
+    badge_rc.bottom = S(36);
+    gb_fill(hdc, &badge_rc, GB_DARKEST);
+    gb_frame(hdc, &badge_rc, GB_DARK, S(2));
+    {
+        RECT tr = badge_rc;
+        tr.left += S(4);
+        tr.right -= S(4);
+        gb_text(hdc, g_fontBold, GB_LIGHTEST, &tr, badge,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+
+    /* Başlık çubuğu ayırıcısı */
+    {
+        RECT divider = { S(12), S(43), rc.right - S(12), S(44) };
+        gb_fill(hdc, &divider, GB_DARK);
+    }
+
+    /* Bölüm panelleri */
+    draw_panel(hdc, &g_rc_panel_url, L"1  BAĞLANTI");
+    draw_panel(hdc, &g_rc_panel_media, L"2  MEDYA VE FORMAT");
+    draw_panel(hdc, &g_rc_panel_download, L"3  İNDİRME DURUMU");
+
+    /* URL kutusunun kendi çerçevesi */
+    edit_frame = g_rc_edit;
+    InflateRect(&edit_frame, S(2), S(2));
+    gb_fill(hdc, &edit_frame, GB_DARKEST);
+
+    /* İlerleme çubuğu */
+    draw_progress(hdc, &g_rc_progress, g_progress);
+}
+
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (g_taskbar_created_msg != 0 && msg == g_taskbar_created_msg) {
@@ -1096,6 +1451,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             AddClipboardFormatListener(hWnd);
             g_dpi = query_window_dpi(hWnd);
             update_fixed_metrics();
+            gb_set_dpi(g_dpi);
             create_fonts();
             load_settings();
 
@@ -1104,34 +1460,36 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             /* =========================================================
                GROUP 1: URL & BAĞLANTI
                ========================================================= */
-            g_hGrpUrl = CreateWindowExW(0, L"BUTTON", L" Bağlantı ",
-                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+            g_hGrpUrl = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | BS_GROUPBOX,
                 20, 45, 590, 65, hWnd, (HMENU)IDC_GRP_URL, hInst, NULL);
             SendMessageW(g_hGrpUrl, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hEditUrl = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            g_hEditUrl = CreateWindowExW(0, L"EDIT", L"",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
                 32, 68, 390, 25, hWnd, (HMENU)IDC_EDIT_URL, hInst, NULL);
             SendMessageW(g_hEditUrl, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
+            SendMessageW(g_hEditUrl, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN,
+                         MAKELPARAM(S(8), S(8)));
 
             /* Subclass edit box for auto-fetch on paste and Enter */
             g_oldEditProc = (WNDPROC)SetWindowLongPtrW(g_hEditUrl, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
 
             g_hBtnPaste = CreateWindowExW(0, L"BUTTON", L"Yapıştır",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 430, 67, 80, 27, hWnd, (HMENU)IDC_BTN_PASTE, hInst, NULL);
             SendMessageW(g_hBtnPaste, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             g_hBtnFetch = CreateWindowExW(0, L"BUTTON", L"Bilgi Getir",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 516, 67, 82, 27, hWnd, (HMENU)IDC_BTN_FETCH, hInst, NULL);
             SendMessageW(g_hBtnFetch, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             /* =========================================================
                GROUP 2: MEDYA VE FORMAT AYARLARI
                ========================================================= */
-            g_hGrpMedia = CreateWindowExW(0, L"BUTTON", L" Medya ve Format Seçimi ",
-                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+            g_hGrpMedia = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | BS_GROUPBOX,
                 20, 118, 590, 205, hWnd, (HMENU)IDC_GRP_MEDIA, hInst, NULL);
             SendMessageW(g_hGrpMedia, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
@@ -1145,42 +1503,34 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 32, 164, 565, 18, hWnd, (HMENU)IDC_STATIC_META, hInst, NULL);
             SendMessageW(g_hStaticMeta, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
-            g_hRadioVideo = CreateWindowExW(0, L"BUTTON", L"Video Olarak İndir",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
+            g_hRadioVideo = CreateWindowExW(0, L"BUTTON", L"VİDEO",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | WS_GROUP,
                 32, 192, 150, 22, hWnd, (HMENU)IDC_RADIO_VIDEO, hInst, NULL);
             SendMessageW(g_hRadioVideo, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-            SendMessageW(g_hRadioVideo, BM_SETCHECK, BST_CHECKED, 0);
 
-            g_hRadioAudio = CreateWindowExW(0, L"BUTTON", L"Yalnızca Ses (Müzik)",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+            g_hRadioAudio = CreateWindowExW(0, L"BUTTON", L"SADECE SES",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 195, 192, 160, 22, hWnd, (HMENU)IDC_RADIO_AUDIO, hInst, NULL);
             SendMessageW(g_hRadioAudio, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hComboRes = CreateWindowExW(0, L"COMBOBOX", NULL,
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                32, 222, 220, 200, hWnd, (HMENU)IDC_COMBO_RES, hInst, NULL);
+            g_hComboRes = CreateWindowExW(0, L"BUTTON", L"EN YÜKSEK KALİTE",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                32, 222, 220, 26, hWnd, (HMENU)IDC_COMBO_RES, hInst, NULL);
             SendMessageW(g_hComboRes, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-            SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)L"En Yüksek Kalite (Varsayılan)");
-            SendMessageW(g_hComboRes, CB_SETCURSEL, 0, 0);
 
-            g_hChkForceMp4 = CreateWindowExW(0, L"BUTTON", L"MP4 Olarak Zorla",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-                265, 223, 180, 22, hWnd, (HMENU)IDC_CHK_FORCE_MP4, hInst, NULL);
+            g_hChkForceMp4 = CreateWindowExW(0, L"BUTTON", L"MP4 OLARAK ZORLA",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                265, 223, 180, 24, hWnd, (HMENU)IDC_CHK_FORCE_MP4, hInst, NULL);
             SendMessageW(g_hChkForceMp4, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hComboAudio = CreateWindowExW(0, L"COMBOBOX", NULL,
-                WS_CHILD | WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL,
-                32, 222, 220, 200, hWnd, (HMENU)IDC_COMBO_AUDIO, hInst, NULL);
+            g_hComboAudio = CreateWindowExW(0, L"BUTTON", L"OPUS  EN YÜKSEK KALİTE",
+                WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
+                32, 222, 220, 26, hWnd, (HMENU)IDC_COMBO_AUDIO, hInst, NULL);
             SendMessageW(g_hComboAudio, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-            SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"Opus (Ham En Yüksek Kalite)");
-            SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"AAC (M4A - Apple Uyumlu)");
             /* Paketlenen ffmpeg'de MP3 kodlayıcısı yoksa seçeneği hiç gösterme:
                seçilip de indirme sonunda hata vermesi kullanıcıyı yanıltıyordu. */
             g_mp3_available = engine_ffmpeg_can_encode_mp3();
-            if (g_mp3_available) {
-                SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"MP3 (Evrensel Format)");
-            }
-            SendMessageW(g_hComboAudio, CB_SETCURSEL, 0, 0);
+            fill_aud_items();
 
             g_hStaticReason = CreateWindowExW(0, L"STATIC", L"",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
@@ -1188,7 +1538,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             SendMessageW(g_hStaticReason, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
             g_hBtnChooseFolder = CreateWindowExW(0, L"BUTTON", L"Konum Seç",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 32, 288, 110, 26, hWnd, (HMENU)IDC_BTN_CHOOSE_FOLDER, hInst, NULL);
             SendMessageW(g_hBtnChooseFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
@@ -1200,14 +1550,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             /* =========================================================
                GROUP 3: İNDİRME DURUMU & EYLEMLER
                ========================================================= */
-            g_hGrpDownload = CreateWindowExW(0, L"BUTTON", L" İndirme Durumu ",
-                WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+            g_hGrpDownload = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | BS_GROUPBOX,
                 20, 338, 590, 130, hWnd, (HMENU)IDC_GRP_DOWNLOAD, hInst, NULL);
             SendMessageW(g_hGrpDownload, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-
-            g_hProgressBar = CreateWindowExW(0, PROGRESS_CLASSW, NULL,
-                WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-                32, 360, 565, 20, hWnd, (HMENU)IDC_PROGRESS, hInst, NULL);
 
             g_hStaticStatus = CreateWindowExW(0, L"STATIC", L"Hazır",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
@@ -1215,20 +1561,52 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             SendMessageW(g_hStaticStatus, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             g_hBtnDownload = CreateWindowExW(0, L"BUTTON", L"İNDİR",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 32, 416, 120, 36, hWnd, (HMENU)IDC_BTN_DOWNLOAD, hInst, NULL);
             SendMessageW(g_hBtnDownload, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
 
             g_hBtnCancel = CreateWindowExW(0, L"BUTTON", L"İptal",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON | WS_DISABLED,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | WS_DISABLED,
                 160, 416, 90, 36, hWnd, (HMENU)IDC_BTN_CANCEL, hInst, NULL);
             SendMessageW(g_hBtnCancel, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
             g_hBtnOpenLocation = CreateWindowExW(0, L"BUTTON", L"Dosya Konumunu Aç",
-                WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON,
+                WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
                 438, 416, 170, 36, hWnd, (HMENU)IDC_BTN_OPEN_LOCATION, hInst, NULL);
             SendMessageW(g_hBtnOpenLocation, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
             ShowWindow(g_hBtnOpenLocation, SW_HIDE);
+
+            /* Kendi başlık çubuğumuzun düğmeleri */
+            g_hBtnMin = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                0, 0, 26, 24, hWnd, (HMENU)IDC_BTN_MIN, hInst, NULL);
+            g_hBtnClose = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                0, 0, 26, 24, hWnd, (HMENU)IDC_BTN_CLOSE, hInst, NULL);
+
+            gb_set_dpi(g_dpi);
+            track_button(g_hBtnPaste);
+            track_button(g_hBtnFetch);
+            track_button(g_hRadioVideo);
+            track_button(g_hRadioAudio);
+            track_button(g_hComboRes);
+            track_button(g_hChkForceMp4);
+            track_button(g_hComboAudio);
+            track_button(g_hBtnChooseFolder);
+            track_button(g_hBtnDownload);
+            track_button(g_hBtnCancel);
+            track_button(g_hBtnOpenLocation);
+            track_button(g_hBtnMin);
+            track_button(g_hBtnClose);
+
+            g_mode_audio = 0;
+            g_force_mp4 = 0;
+            g_res_sel = 0;
+            g_aud_sel = 0;
+            g_progress = 0;
+            fill_res_items();
+            fill_aud_items();
+            refresh_dropdown_labels();
 
             update_folder_label();
             apply_control_fonts();
@@ -1283,6 +1661,15 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             return 0;
         }
 
+        case WM_NCHITTEST: {
+            POINT pt;
+            pt.x = GET_X_LPARAM(lParam);
+            pt.y = GET_Y_LPARAM(lParam);
+            ScreenToClient(hWnd, &pt);
+            if (pt.y < S(44)) return HTCAPTION;
+            break;
+        }
+
         case WM_SETCURSOR: {
             HWND hCursorWnd = (HWND)wParam;
             if (hCursorWnd == g_hStaticFolder) {
@@ -1297,42 +1684,112 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             HWND hCtl = (HWND)lParam;
             SetBkMode(hdc, TRANSPARENT);
             if (hCtl == g_hStaticFolder) {
-                SetTextColor(hdc, RGB(0, 102, 204));
-                return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+                SetTextColor(hdc, GB_DARKEST);
+                return (LRESULT)panel_brush();
             }
-            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
-            return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+            SetTextColor(hdc, GB_DARKEST);
+            return (LRESULT)panel_brush();
         }
 
         case WM_CTLCOLOREDIT: {
             HDC hdc = (HDC)wParam;
-            SetBkColor(hdc, GetSysColor(COLOR_WINDOW));
-            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
-            return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+            SetBkColor(hdc, GB_LIGHTEST);
+            SetTextColor(hdc, GB_DARKEST);
+            return (LRESULT)panel_brush();
         }
+
+        case WM_ERASEBKGND:
+            return 1;
 
         case WM_PAINT: {
             PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
+            HDC hdc;
+            HDC mem;
+            HBITMAP bmp;
+            HGDIOBJ old;
             RECT rc;
+
+            hdc = BeginPaint(hWnd, &ps);
             GetClientRect(hWnd, &rc);
 
-            FillRect(hdc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+            mem = CreateCompatibleDC(hdc);
+            bmp = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
+            old = SelectObject(mem, bmp);
 
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
-            SelectObject(hdc, g_fontTitle);
-            TextOutW(hdc, S(22), S(14), L"ff-dlp-viewer", 13);
+            paint_main(hWnd, mem);
 
-            SelectObject(hdc, g_fontBold);
-            const wchar_t *badge = g_has_meta ? g_current_meta.platform.badge_label : L"WEB";
-            RECT badge_rc = { rc.right - S(102), S(14), rc.right - S(22), S(36) };
-            DrawEdge(hdc, &badge_rc, EDGE_ETCHED, BF_RECT);
-            SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
-            DrawTextW(hdc, badge, -1, &badge_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            BitBlt(hdc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
 
+            SelectObject(mem, old);
+            DeleteObject(bmp);
+            DeleteDC(mem);
             EndPaint(hWnd, &ps);
             return 0;
+        }
+
+        case WM_DRAWITEM: {
+            const DRAWITEMSTRUCT *dis = (const DRAWITEMSTRUCT*)lParam;
+            int role = -1;
+            int checked = 0;
+            int bold = 0;
+
+            if (!dis) break;
+            switch (dis->CtlID) {
+                case IDC_BTN_PASTE:
+                case IDC_BTN_FETCH:
+                case IDC_BTN_CHOOSE_FOLDER:
+                case IDC_BTN_OPEN_LOCATION:
+                    role = GB_ROLE_PUSH;
+                    break;
+                case IDC_BTN_DOWNLOAD:
+                    role = GB_ROLE_PRIMARY;
+                    bold = 1;
+                    break;
+                case IDC_BTN_CANCEL:
+                    role = GB_ROLE_DANGER;
+                    break;
+                case IDC_RADIO_VIDEO:
+                    role = GB_ROLE_CHIP;
+                    checked = !g_mode_audio;
+                    bold = 1;
+                    break;
+                case IDC_RADIO_AUDIO:
+                    role = GB_ROLE_CHIP;
+                    checked = g_mode_audio;
+                    bold = 1;
+                    break;
+                case IDC_CHK_FORCE_MP4:
+                    role = GB_ROLE_CHECK;
+                    checked = g_force_mp4;
+                    break;
+                case IDC_COMBO_RES:
+                case IDC_COMBO_AUDIO:
+                    role = GB_ROLE_DROP;
+                    break;
+                case IDC_BTN_MIN:
+                    role = GB_ROLE_TITLE;
+                    break;
+                case IDC_BTN_CLOSE:
+                    role = GB_ROLE_TITLE;
+                    checked = 1;
+                    break;
+                default:
+                    break;
+            }
+
+            if (role >= 0) {
+                HFONT font = g_fontNormal;
+                if (dis->CtlID == IDC_BTN_PASTE || dis->CtlID == IDC_BTN_FETCH ||
+                    dis->CtlID == IDC_BTN_CHOOSE_FOLDER || dis->CtlID == IDC_BTN_OPEN_LOCATION ||
+                    dis->CtlID == IDC_BTN_CANCEL) {
+                    font = g_fontSmall;
+                } else if (bold) {
+                    font = g_fontBold;
+                }
+                gb_draw_control(dis, font, role, checked, tracked_hover(dis->hwndItem));
+                return TRUE;
+            }
+            break;
         }
 
         case WM_COMMAND: {
@@ -1378,11 +1835,26 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 choose_folder_com(hWnd);
             } else if (wmId == IDC_STATIC_FOLDER && (wmEvent == STN_CLICKED || wmEvent == STN_DBLCLK)) {
                 ShellExecuteW(NULL, L"open", g_download_dir, NULL, NULL, SW_SHOWNORMAL);
-            } else if (wmId == IDC_RADIO_VIDEO || wmId == IDC_RADIO_AUDIO ||
-                       wmId == IDC_CHK_FORCE_MP4 ||
-                       (wmId == IDC_COMBO_RES && wmEvent == CBN_SELCHANGE) ||
-                       (wmId == IDC_COMBO_AUDIO && wmEvent == CBN_SELCHANGE)) {
+            } else if (wmId == IDC_RADIO_VIDEO && wmEvent == BN_CLICKED) {
+                g_mode_audio = 0;
                 update_format_selection();
+                InvalidateRect(hWnd, NULL, TRUE);
+            } else if (wmId == IDC_RADIO_AUDIO && wmEvent == BN_CLICKED) {
+                g_mode_audio = 1;
+                update_format_selection();
+                InvalidateRect(hWnd, NULL, TRUE);
+            } else if (wmId == IDC_CHK_FORCE_MP4 && wmEvent == BN_CLICKED) {
+                g_force_mp4 = !g_force_mp4;
+                update_format_selection();
+                InvalidateRect(hWnd, NULL, TRUE);
+            } else if (wmId == IDC_COMBO_RES && wmEvent == BN_CLICKED) {
+                open_res_dropdown();
+            } else if (wmId == IDC_COMBO_AUDIO && wmEvent == BN_CLICKED) {
+                open_aud_dropdown();
+            } else if (wmId == IDC_BTN_MIN) {
+                ShowWindow(hWnd, SW_MINIMIZE);
+            } else if (wmId == IDC_BTN_CLOSE) {
+                PostMessageW(hWnd, WM_CLOSE, 0, 0);
             } else if (wmId == ID_TRAY_RESTORE) {
                 ShowWindow(hWnd, SW_RESTORE);
                 SetForegroundWindow(hWnd);
@@ -1428,20 +1900,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     g_current_meta.format_count);
                 SetWindowTextW(g_hStaticMeta, meta_info);
 
-                /* Fill Resolution dropdown */
-                SendMessageW(g_hComboRes, CB_RESETCONTENT, 0, 0);
-                SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)L"En Yüksek Kalite (Varsayılan)");
-                for (int i = 0; i < g_current_meta.num_resolutions; i++) {
-                    wchar_t res_str[64];
-                    int h = g_current_meta.available_resolutions[i];
-                    if (h >= 2160) _snwprintf(res_str, 64, L"%dp (4K Ultra HD)", h);
-                    else if (h >= 1440) _snwprintf(res_str, 64, L"%dp (2K QHD)", h);
-                    else if (h >= 1080) _snwprintf(res_str, 64, L"%dp (Full HD)", h);
-                    else if (h >= 720) _snwprintf(res_str, 64, L"%dp (HD)", h);
-                    else _snwprintf(res_str, 64, L"%dp", h);
-                    SendMessageW(g_hComboRes, CB_ADDSTRING, 0, (LPARAM)res_str);
-                }
-                SendMessageW(g_hComboRes, CB_SETCURSEL, 0, 0);
+                /* Çözünürlük listesini medya bilgisinden yeniden doldur */
+                g_res_sel = 0;
+                fill_res_items();
+                refresh_dropdown_labels();
 
                 update_format_selection();
                 InvalidateRect(hWnd, NULL, TRUE);
@@ -1468,7 +1930,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     SetWindowTextW(g_hStaticStatus, L"Bilgi çekme iptal edildi.");
                 } else {
                     SetWindowTextW(g_hStaticStatus, L"Hata oluştu.");
-                    MessageBoxW(hWnd, msg->error_msg[0] ? msg->error_msg : L"Video bilgisi alınamadı.", L"Hata", MB_OK | MB_ICONERROR);
+                    gb_message_box(hWnd, L"HATA",
+                        msg->error_msg[0] ? msg->error_msg : L"Video bilgisi alınamadı.",
+                        MB_OK | MB_ICONERROR);
                 }
             }
 
@@ -1481,7 +1945,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (!msg) break;
 
             if (wcscmp(msg->status, L"downloading") == 0) {
-                SendMessageW(g_hProgressBar, PBM_SETPOS, (WPARAM)(int)msg->percent, 0);
+                g_progress = (int)msg->percent;
+                InvalidateRect(hWnd, &g_rc_progress, FALSE);
 
                 wchar_t speed_str[64];
                 format_bytes_str((long long)msg->speed, speed_str, 64);
@@ -1508,13 +1973,15 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     tray_set_tip(tip);
                 }
             } else if (wcscmp(msg->status, L"processing") == 0) {
-                SendMessageW(g_hProgressBar, PBM_SETPOS, 100, 0);
+                g_progress = 100;
+                InvalidateRect(hWnd, &g_rc_progress, FALSE);
                 SetWindowTextW(g_hStaticStatus, L"Akışlar birleştiriliyor ve konteyner tamamlanıyor...");
                 tray_set_tip(L"ff-dlp-viewer - Birleştiriliyor...");
             } else if (wcscmp(msg->status, L"finished") == 0) {
                 g_is_downloading = 0;
                 g_last_tray_percent = -1;
-                SendMessageW(g_hProgressBar, PBM_SETPOS, 100, 0);
+                g_progress = 100;
+                InvalidateRect(hWnd, &g_rc_progress, FALSE);
                 SetWindowTextW(g_hStaticStatus, L"[Tamamlandı] Dosya başarıyla kaydedildi.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
@@ -1544,7 +2011,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 EnableWindow(g_hBtnCancel, FALSE);
                 if (g_hBtnOpenLocation) ShowWindow(g_hBtnOpenLocation, SW_HIDE);
                 tray_set_tip(L"ff-dlp-viewer - Hata");
-                MessageBoxW(hWnd, msg->error_msg[0] ? msg->error_msg : L"İndirme sırasında bir hata oluştu.", L"İndirme Hatası", MB_OK | MB_ICONERROR);
+                gb_message_box(hWnd, L"İNDİRME HATASI",
+                    msg->error_msg[0] ? msg->error_msg : L"İndirme sırasında bir hata oluştu.",
+                    MB_OK | MB_ICONERROR);
             }
 
             free(msg);
@@ -1669,6 +2138,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             g_dpi = HIWORD(wParam);
             if (g_dpi == 0) g_dpi = query_window_dpi(hWnd);
             update_fixed_metrics();
+            gb_set_dpi(g_dpi);
             create_fonts();
             apply_control_fonts();
 
@@ -1724,9 +2194,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_CLOSE: {
             if (engine_is_busy()) {
-                int res = MessageBoxW(hWnd,
+                int res = gb_message_box(hWnd,
+                    L"İNDİRME SÜRÜYOR",
                     L"İndirme işlemi devam ediyor.\nArka planda devam etmesi için sistem tepsisine küçültülsün mü?",
-                    L"İndirme Sürüyor", MB_YESNOCANCEL | MB_ICONQUESTION);
+                    MB_YESNOCANCEL | MB_ICONQUESTION);
                 if (res == IDYES) {
                     ShowWindow(hWnd, SW_HIDE);
                     return 0;
@@ -1759,7 +2230,7 @@ int ui_run(HINSTANCE hInstance, int nCmdShow, const wchar_t *initial_url)
 {
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES;
+    icex.dwICC = ICC_STANDARD_CLASSES;
     InitCommonControlsEx(&icex);
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
@@ -1785,8 +2256,9 @@ int ui_run(HINSTANCE hInstance, int nCmdShow, const wchar_t *initial_url)
     wc.hInstance = hInstance;
     wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(101));
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.hbrBackground = NULL;
     wc.lpszClassName = UI_WINDOW_CLASS;
+    wc.style = CS_DROPSHADOW;
 
     if (!RegisterClassExW(&wc)) {
         CoUninitialize();
@@ -1805,6 +2277,15 @@ int ui_run(HINSTANCE hInstance, int nCmdShow, const wchar_t *initial_url)
     if (!hWnd) {
         CoUninitialize();
         return 0;
+    }
+
+    {
+        RECT work;
+        int x, y;
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+        x = work.left + (work.right - work.left - init_w) / 2;
+        y = work.top + (work.bottom - work.top - init_h) / 2;
+        SetWindowPos(hWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     ShowWindow(hWnd, nCmdShow);

@@ -13,7 +13,7 @@ Bu dal (`light`), Python/PyInstaller çalışma zamanı şişkinliğini (bloat) 
 
 2. **Dosya Boyutu ve Performans:**
    * **Hedef:** < 1 MB (İdeal: 150 KB – 300 KB).
-   * **Gerçekleşen Boyut:** **176.640 bayt (~172.5 KB)**.
+   * **Gerçekleşen Boyut:** **~337 KB** (345.088 bayt).
    * **Boşta RAM Ayak İzi:** < 10 MB (Python sürümündeki 60-70 MB'a kıyasla ~%85 tasarruf).
    * **Açılış Süresi:** < 15 ms (neredeyse anında).
 
@@ -24,8 +24,10 @@ Bu dal (`light`), Python/PyInstaller çalışma zamanı şişkinliğini (bloat) 
    * `src/cjson.c`: Tek dosyalık ultra-hafif JSON ayrıştırıcı (meta verileri ve format ağacını ayrıştırmak için).
    * `src/engine.c`: Asenkron iş parçacığı (`CreateThread`), GUI'yi kilitlemeyen gizli boru hattı (`CreatePipe` / `ReadFile`), yüzde/hız/kalan süre ayrıştırıcısı ve iptal mekanizması.
 
-4. **Kırtasiye Defteri (Stationery Notebook) Arayüzü:**
-   * Pastel kağıt arka planı (`#FAF7EE`), defter cilt çizgisi (`#E06666`) ve piksel butonlar (`BS_OWNERDRAW`).
+4. **Game Boy Esintili 8-bit Arayüz (`gb_ui.c` / `ui.c`):**
+   * Klasik DMG paleti: dört yeşil ton (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`); ara tonlar 1 px dama deseniyle.
+   * `BS_OWNERDRAW` butonlar, seçim çipleri, onay kutusu, özel açılır liste, segmentli ilerleme çubuğu, kendi başlık çubuğu ve modal mesaj kutusu.
+   * `Consolas` sistem fontu + `NONANTIALIASED_QUALITY`; harici font/görsel dosyası yok.
    * Modern COM `IFileOpenDialog` (`FOS_PICKFOLDERS`) ile klasör seçimi.
    * Sürükle & Bırak (`WM_DROPFILES`) desteği.
    * Sistem tepsisi (`Shell_NotifyIconW`) entegrasyonu.
@@ -50,9 +52,9 @@ gcc -O3 -s -flto \
     -Wl,--gc-sections \
     -static -mwindows -municode \
     -Isrc \
-    src\main.c src\ui.c src\engine.c src\codec_selector.c src\detector.c src\sanitization.c src\cjson.c res.o \
+    src\main.c src\ui.c src\gb_ui.c src\engine.c src\codec_selector.c src\detector.c src\sanitization.c src\cjson.c res.o \
     -o dist\ff-dlp-viewer.exe \
-    -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32
+    -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32 -lurlmon
 ```
 
 ---
@@ -62,7 +64,7 @@ gcc -O3 -s -flto \
 C çekirdek birim testlerini derleyip çalıştırmak için:
 
 ```cmd
-gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c tests/test_core.c -o tests/test_core.exe
+gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c src/cjson.c tests/test_core.c -o tests/test_core.exe
 tests\test_core.exe
 ```
 

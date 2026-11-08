@@ -8,7 +8,7 @@ windows
 
 ## Stack
 
-Python 3.11+ (Python 3.13), yt-dlp (kütüphane API), ffmpeg (uygulama içi bağımsız ikili), Tkinter/ttk (piksel estetiği ve ultra düşük RAM için), pystray (sistem tepsisi), Inno Setup (kurulum paketi).
+Saf C11 (Win32 API: user32/gdi32/comctl32/shell32/ole32), yt-dlp ve ffmpeg bağımsız ikilileri, özel çizilmiş GDI arayüzü (gb_ui.c), sistem tepsisi. Harici GUI çatısı, Python veya Electron yok.
 
 ## Users
 
@@ -22,7 +22,7 @@ YouTube, Instagram, TikTok, X (Twitter) gibi platformlardan video ve sesleri; ka
 
 ## Positioning
 
-Gereksiz "AI dashboard" süslemeleri, yüzlerce megabaytlık Electron veya ağır Qt bağımlılıkları ve reklam/telemetri içeren hantal indiricilerin aksine; 20 MB altında boşta RAM tüketen, Steam/WhatsApp benzeri sessiz tray (sistem tepsisi) yaşam döngüsüne sahip, deterministik kodek seçimi yapan ve piksel-art esintili pastel arayüze sahip bağımsız Windows aracı.
+Gereksiz "AI dashboard" süslemeleri, yüzlerce megabaytlık Electron veya ağır Qt bağımlılıkları ve reklam/telemetri içeren hantal indiricilerin aksine; 20 MB altında boşta RAM tüketen, Steam/WhatsApp benzeri sessiz tray (sistem tepsisi) yaşam döngüsüne sahip, deterministik kodek seçimi yapan ve Game Boy DMG paletli 8-bit arayüze sahip bağımsız Windows aracı.
 
 ## Operating Context
 
@@ -43,8 +43,8 @@ Gereksiz "AI dashboard" süslemeleri, yüzlerce megabaytlık Electron veya ağı
 
 ## Brand Commitments
 
-- **Stil**: Piksel estetiği (pixel-art retro havası), keskin köşeler, 1-2 piksellik belirgin kenarlıklar, yumuşak pastel tonlar.
-- **Anti-pattern Yasakları**: Gradient, parlama (glow), bulanık gölgeler, yapay zeka jeneriği kartlar, gereksiz emojiler kesinlikle yer almaz.
+- **Stil**: Game Boy DMG 8-bit estetiği: yalnızca 4 yeşil ton, keskin köşeler, 2 px sert çerçeve/gölge, sistem `Consolas` fontu (anti-aliasing kapalı). Harici görsel/font dosyası yok.
+- **Anti-pattern Yasakları**: Gradient, parlama (glow), bulanık gölge, yuvarlatılmış köşe, işletim sisteminin çizdiği kontrol (combobox/radio/checkbox), emoji ikonlar ve yapay zeka jeneriği kartlar kesinlikle yer almaz.
 - **Dil**: Tamamen Türkçe ve yalın terminoloji.
 
 ## Product Principles

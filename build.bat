@@ -23,6 +23,7 @@ gcc -O3 -s -flto ^
     -Isrc ^
     src\main.c ^
     src\ui.c ^
+    src\gb_ui.c ^
     src\bootstrapper.c ^
     src\engine.c ^
     src\codec_selector.c ^

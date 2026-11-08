@@ -4,7 +4,7 @@
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
-[![Binary Size](https://img.shields.io/badge/Binary_Size-~200_KB-brightgreen?style=flat-square)](#)
+[![Binary Size](https://img.shields.io/badge/Binary_Size-~337_KB-brightgreen?style=flat-square)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-8CBE9C?style=flat-square)](LICENSE)
 
 ---
@@ -13,7 +13,7 @@
 
 **ff-dlp-viewer**, Python çalışma zamanı, PyInstaller veya Electron gibi ağır bağımlılıkları tamamen ortadan kaldırarak saf C11 ve yerel Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`) kullanılarak sıfırdan yeniden yazılmıştır.
 
-Nihai çalıştırılabilir dosya boyutu **yalnızca ~200 KB** olup, bellek tüketimi 10-15 MB civarındadır.
+Nihai çalıştırılabilir dosya boyutu **yalnızca ~337 KB** olup, bellek tüketimi 10-15 MB civarındadır.
 
 ---
 
@@ -23,10 +23,12 @@ Nihai çalıştırılabilir dosya boyutu **yalnızca ~200 KB** olup, bellek tük
   - Harici DLL bağımlılığı yoktur; doğrudan Windows yerel sistem kütüphanelerine statik olarak bağlanır.
   - Hızlı açılış, sıfır gecikme ve minimum kaynak kullanımı (RAM: ~12 MB).
 
-- **Modern ve Sade Win32 Arayüzü**:
-  - Windows klasik pastel/sistem temasında net ve sade kontroller (`Segoe UI` yazı tipi).
-  - Yalnızca yatayda genişleyebilen (width-only resizable, sabit yükseklikli) ergonomik pencere düzeni.
-  - Per-Monitor V2 DPI farkındalığı sayesinde 4K ve yüksek DPI ekranlarda pikseli bozulmayan dinamik ölçekleme.
+- **Game Boy Esintili 8-bit Arayüz**:
+  - Klasik DMG paleti: yalnızca 4 ton yeşil (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`).
+  - Tüm butonlar, seçim çipleri, onay kutusu, ilerleme çubuğu, açılır listeler, bildirim ve onay pencereleri özel çizilir; harici görsel veya font dosyası yoktur.
+  - Kendi başlık çubuğu (sürükle / küçült / kapat), keskin köşeler, 2 px sert gölgeler. Gradient, blur ve parlama yoktur.
+  - Sistem fontu `Consolas`, anti-aliasing kapalı; Türkçe karakterler tam desteklenir.
+  - Sabit 646×485 tasarım, Per-Monitor V2 DPI ile ölçeklenir.
 
 - **Tek Tıkla Otomatik İndirme (Auto-Fetch & Download)**:
   - Bağlantı yapıştırıldığında arka planda otomatik bilgi sorgulama.
@@ -35,7 +37,7 @@ Nihai çalıştırılabilir dosya boyutu **yalnızca ~200 KB** olup, bellek tük
 
 - **Klavye ve Erişilebilirlik Odaklı**:
   - `Tab` / `Shift+Tab` ile tüm kontroller arasında eksiksiz gezinme (`WS_TABSTOP` ve `IsDialogMessageW`).
-  - `Enter`: Herhangi bir kontroldeyken indirme işlemini tetikler.
+  - `Enter`: URL kutusundayken önce bilgi çekip indirmeyi başlatır.
   - `Esc`: Devam eden işlemi iptal eder veya pencereyi kapatır.
 
 - **Akıllı Süreç Yönetimi (Job Object)**:
@@ -55,7 +57,7 @@ Nihai çalıştırılabilir dosya boyutu **yalnızca ~200 KB** olup, bellek tük
 
 | Kısayol | Eylem |
 |---|---|
-| `Enter` | İndirmeyi başlatır (bilgi çekilmemişse önce bilgiyi alıp indirir). |
+| `Enter` | URL kutusundayken indirmeyi başlatır (bilgi çekilmemişse önce bilgiyi alıp indirir). |
 | `Esc` | Aktif bir işlem varsa iptal eder, yoksa pencereyi kapatır. |
 | `Tab` / `Shift+Tab` | Arayüz kontrolleri arasında sırayla gezinir. |
 | `Space` | Odaklanan butona tıklar veya radyo/onay kutusunu değiştirir. |
@@ -93,13 +95,13 @@ build.bat
 Veya doğrudan derleyici komutu:
 ```cmd
 windres res\res.rc -O coff -o res.o
-gcc -O3 -s -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -static -mwindows -municode -Isrc src\main.c src\ui.c src\engine.c src\codec_selector.c src\detector.c src\sanitization.c src\cjson.c res.o -o dist\ff-dlp-viewer.exe -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32
+gcc -O3 -s -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -static -mwindows -municode -Isrc src\main.c src\ui.c src\gb_ui.c src\engine.c src\codec_selector.c src\detector.c src\sanitization.c src\cjson.c res.o -o dist\ff-dlp-viewer.exe -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32 -lurlmon
 ```
 
 ### 2. Birim Testleri
 Çekirdek algoritmaları (platform dedektörü, dosya adı sanitizasyonu, kodek seçimi ve doğrudan medya yönetimi) test etmek için:
 ```cmd
-gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c tests/test_core.c -o tests/test_core.exe
+gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c src/cjson.c tests/test_core.c -o tests/test_core.exe
 .\tests\test_core.exe
 ```
 
