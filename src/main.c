@@ -9,7 +9,7 @@
 #include <wchar.h>
 #include <stdio.h>
 
-#define APP_VERSION_STR L"2.0.0-light"
+#define APP_VERSION_STR L"2.1.0-light"
 #define APP_MUTEX_NAME  L"Local\\ff-dlp-viewer-light"
 #define WM_COPYDATA_URL 1
 

@@ -2,9 +2,9 @@
 ; Türkçe arayüzlü, %LOCALAPPDATA% altına yönetici izni gerektirmeyen temiz kurulum
 
 #define MyAppName "ff-dlp-viewer"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.1.0"
 #define MyAppPublisher "Haluk"
-#define MyAppURL "https://github.com/haluked/ff-dlp-viewer"
+#define MyAppURL "https://github.com/haluked/yt-mini"
 #define MyAppExeName "ff-dlp-viewer.exe"
 
 [Setup]

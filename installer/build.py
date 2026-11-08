@@ -28,6 +28,9 @@ DIST_DIR = PROJECT_ROOT / "dist"
 BIN_DIR = PROJECT_ROOT / "bin"
 INSTALLER_DIR = PROJECT_ROOT / "installer"
 
+APP_VERSION = "2.1.0"
+PORTABLE_NAME = f"ff-dlp-viewer-v{APP_VERSION}-portable"
+
 
 def print_step(step: str):
     print(f"\n======================================================\n>> {step}\n======================================================")
@@ -82,7 +85,7 @@ def build_portable_package() -> Path:
     """Tüm bağımlılıkları (ff-dlp-viewer.exe, ffmpeg.exe, yt-dlp.exe) içeren bağımsız taşınabilir paketi üretir."""
     print_step("3/5: Taşınabilir Bağımsız Paket (Portable Bundle) Üretiliyor")
 
-    bundle_dir = DIST_DIR / "ff-dlp-viewer-v2.0-beta-portable"
+    bundle_dir = DIST_DIR / PORTABLE_NAME
     if bundle_dir.exists():
         shutil.rmtree(bundle_dir)
     bundle_dir.mkdir(parents=True, exist_ok=True)
@@ -104,19 +107,30 @@ def build_portable_package() -> Path:
     # 3. Kolay kullanım kılavuzu
     readme_txt = bundle_dir / "KULLANIM.txt"
     readme_txt.write_text(
-        "ff-dlp-viewer v2.0-beta (Taşınabilir Sürüm)\n"
+        "ff-dlp-viewer v2.1.0 (Taşınabilir Sürüm)\n"
         "===========================================\n\n"
         "Bu paket tüm bileşenleri (ff-dlp-viewer, yt-dlp, ffmpeg) tek parça olarak içerir.\n"
         "Python, pip veya harici bir kurulum yapmanıza gerek yoktur.\n\n"
         "Çalıştırmak için:\n"
         "  - 'ff-dlp-viewer.exe' dosyasına çift tıklayın.\n\n"
+        "Kapatma:\n"
+        "  - X düğmesi pencereyi sistem tepsisine gizler; uygulama arka planda çalışır.\n"
+        "  - Tamamen kapatmak için tepsi simgesine sağ tıklayıp 'Çıkış' seçin.\n\n"
+        "İndirilen dosyalar varsayılan olarak Videolar klasörüne kaydedilir.\n"
+        "İsterseniz 'Konum Seç' ile başka bir klasör seçebilirsiniz.\n\n"
         "İyi kullanımlar!\n",
         encoding="utf-8"
     )
 
-    # 4. ZIP arşivi oluştur
-    zip_path = DIST_DIR / "ff-dlp-viewer-v2.0-beta-portable"
-    archive_file = Path(shutil.make_archive(str(zip_path), "zip", root_dir=str(bundle_dir)))
+    # 4. Lisans
+    license_src = PROJECT_ROOT / "LICENSE"
+    if license_src.is_file():
+        shutil.copy2(license_src, bundle_dir / "LICENSE")
+
+    # 5. ZIP arşivi oluştur (üst klasör adı korunur)
+    zip_base = DIST_DIR / PORTABLE_NAME
+    archive_file = Path(shutil.make_archive(
+        str(zip_base), "zip", root_dir=str(DIST_DIR), base_dir=bundle_dir.name))
     print(f"[BAŞARILI] Taşınabilir paket hazırlandı: {archive_file}")
     return archive_file
 
@@ -156,7 +170,7 @@ def build_inno_setup():
     if res.returncode != 0:
         raise RuntimeError("Inno Setup derlemesi başarısız oldu!")
 
-    setup_exe = DIST_DIR / "ff-dlp-viewer-Setup-v2.0.0.exe"
+    setup_exe = DIST_DIR / f"ff-dlp-viewer-Setup-v{APP_VERSION}.exe"
     if setup_exe.is_file():
         print(f"[BAŞARILI] Kurulum dosyası üretildi: {setup_exe}")
         return setup_exe
