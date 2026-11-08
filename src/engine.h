@@ -67,9 +67,9 @@ void engine_cancel(void);
 EngineState engine_get_state(void);
 int engine_is_busy(void);
 
-/* engine.c ve ui.c'in aynı metni kullanması için ortak sabit:
-   bu mesaj geldiğinde UI hata dialogu yerine sakin bir durum mesajı gösterir. */
-#define ENGINE_MSG_CANCELLED L"İşlem kullanıcı tarafından iptal edildi."
+/* Shared constant so engine.c and ui.c use the same text:
+   when this message arrives, the UI shows a calm status line instead of an error dialog. */
+#define ENGINE_MSG_CANCELLED L"The operation was cancelled by the user."
 
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len);
 void format_bytes_str(long long bytes, wchar_t *out_str, size_t max_len);

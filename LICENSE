@@ -21,23 +21,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------------------
-Üçüncü Taraf Bileşenler ve Lisans Uyumluluğu (Third-Party Licenses):
+Third-Party Components and License Compliance:
 
 1. yt-dlp:
-   Lisans: The Unlicense (Kamu Malı / Public Domain Dedication)
-   Kaynak: https://github.com/yt-dlp/yt-dlp
+   License: The Unlicense (Public Domain Dedication)
+   Source: https://github.com/yt-dlp/yt-dlp
 
 2. FFmpeg:
-   Lisans: GNU Lesser General Public License (LGPL) v2.1+
-   Açıklama: FFmpeg, ff-dlp-viewer içerisine statik olarak bağlanmamıştır (link edilmemiştir).
-   Ayrı bir bağımsız çalıştırılabilir ikili (executable binary) olarak kendi bin/ klasöründe
-   tutulur ve standart parametrelerle çağrılır. Bu kullanım LGPL v2.1 şartlarına tam uyumludur.
-   Kaynak ve Kaynak Kod: https://ffmpeg.org/
-
-3. Pillow (PIL Fork):
-   Lisans: Historical Permission Notice and Disclaimer (HPND)
-   Kaynak: https://github.com/python-pillow/Pillow
-
-4. pystray:
-   Lisans: GNU Lesser General Public License (LGPL) v3 / BSD
-   Kaynak: https://github.com/moses-palmer/pystray
+   License: GNU Lesser General Public License (LGPL) v2.1+
+   Note: FFmpeg is not statically linked into ff-dlp-viewer.
+   It is kept as a separate, standalone executable binary in its own bin/ folder
+   and is invoked with standard parameters. This usage fully complies with the
+   terms of LGPL v2.1.
+   Source and source code: https://ffmpeg.org/

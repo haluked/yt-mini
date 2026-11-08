@@ -4,8 +4,8 @@
 101 ICON "res/app.ico"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     2,1,0,0
-PRODUCTVERSION  2,1,0,0
+FILEVERSION     2,2,0,0
+PRODUCTVERSION  2,2,0,0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -14,10 +14,10 @@ FILESUBTYPE     VFT2_UNKNOWN
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
-        BLOCK "041F04B0" // Turkish (041F), Unicode (04B0)
+        BLOCK "040904B0" // English (US) (0409), Unicode (04B0)
         BEGIN
             VALUE "CompanyName",      "Haluk"
-            VALUE "FileDescription",  "Hafif Medya Indirici (Win32 Native)"
+            VALUE "FileDescription",  "Lightweight Media Downloader (Win32 Native)"
             VALUE "FileVersion",      "2.2.0.0"
             VALUE "InternalName",     "ff-dlp-viewer-light"
             VALUE "LegalCopyright",   "MIT License"
@@ -28,6 +28,6 @@ BEGIN
     END
     BLOCK "VarFileInfo"
     BEGIN
-        VALUE "Translation", 0x41f, 1200
+        VALUE "Translation", 0x409, 1200
     END
 END

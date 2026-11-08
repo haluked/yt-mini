@@ -1,5 +1,5 @@
-; Inno Setup 6 Scripti - ff-dlp-viewer
-; Türkçe arayüzlü, %LOCALAPPDATA% altına yönetici izni gerektirmeyen temiz kurulum
+; Inno Setup 6 script - ff-dlp-viewer
+; English interface, clean per-user install under %LOCALAPPDATA% without admin rights
 
 #define MyAppName "ff-dlp-viewer"
 #define MyAppVersion "2.2.0"
@@ -29,16 +29,16 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
-Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "autostart"; Description: "Windows açıldığında sistem tepsisinde (tray) otomatik başlat"; GroupDescription: "Başlangıç Ayarları:"
+Name: "autostart"; Description: "Start ff-dlp-viewer with Windows"; GroupDescription: "Startup settings:"
 
 [Files]
-; Native C11 Win32 derlenmiş ana uygulama (< 1 MB)
+; Main application compiled as native C11 Win32 (< 1 MB)
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-; İsteğe bağlı bağımlılıklar (varsa bin/ altına kopyalanır)
+; Optional dependencies (copied into bin/ when present)
 Source: "..\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion external; Check: FileExists(ExpandConstant('{src}\..\bin\ffmpeg.exe'))
 Source: "..\bin\yt-dlp.exe"; DestDir: "{app}\bin"; Flags: ignoreversion external; Check: FileExists(ExpandConstant('{src}\..\bin\yt-dlp.exe'))
 
@@ -48,7 +48,7 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-; Windows açılışında otomatik başlatma
+; Auto-start at Windows login
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]

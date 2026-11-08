@@ -4,7 +4,7 @@
 #include <string.h>
 
 static const PlatformInfo PLATFORMS[] = {
-    { PLATFORM_GENERIC,   L"generic",   L"Web Medya",   L"WEB",     0 },
+    { PLATFORM_GENERIC,   L"generic",   L"Web Media",   L"WEB",     0 },
     { PLATFORM_YOUTUBE,   L"youtube",   L"YouTube",     L"YOUTUBE", 1 },
     { PLATFORM_TIKTOK,    L"tiktok",    L"TikTok",      L"TIKTOK",  1 },
     { PLATFORM_INSTAGRAM, L"instagram", L"Instagram",   L"INSTA",   1 },
@@ -20,8 +20,8 @@ int is_valid_url(const wchar_t *url)
     size_t len = wcslen(url);
     if (len == 0 || len >= 1024) return 0;
 
-    /* Komut satırına "%ls" olarak verildiği için tırnak, ters bölü ve
-       kontrol karakterleri enjeksiyona yol açabilir. */
+    /* Because it is passed to the command line as "%ls", quotes, backslashes
+       and control characters could enable injection. */
     for (const wchar_t *p = url; *p; p++) {
         if (*p == L'"' || *p == L'\\' || iswcntrl(*p)) return 0;
     }
@@ -36,8 +36,8 @@ int is_valid_url(const wchar_t *url)
     return 0;
 }
 
-/* URL'den şema sonrası, ilk '/'/@/: karakterine kadar olan host kısmını çıkarır.
-   "https://www.x.com/user/status/1" -> "www.x.com" gibi. */
+/* Extracts the host part of the URL after the scheme, up to the first '/'/@/: character.
+   "https://www.x.com/user/status/1" -> "www.x.com". */
 static void extract_host(const wchar_t *url, wchar_t *out_host, size_t max_len)
 {
     const wchar_t *p = url;
@@ -46,7 +46,7 @@ static void extract_host(const wchar_t *url, wchar_t *out_host, size_t max_len)
     if (wcsncmp(p, L"https://", 8) == 0) p += 8;
     else if (wcsncmp(p, L"http://", 7) == 0) p += 7;
 
-    /* kullanıcı:şifre@ biçimini atla */
+    /* skip the user:password@ part */
     const wchar_t *at = wcschr(p, L'@');
     const wchar_t *slash = wcschr(p, L'/');
     if (at && (!slash || at < slash)) p = at + 1;
@@ -57,8 +57,8 @@ static void extract_host(const wchar_t *url, wchar_t *out_host, size_t max_len)
     out_host[n] = L'\0';
 }
 
-/* host, verilen alan adıyla birebir mi ya da alt alan adı mı?
-   "www.x.com" -> "x.com" eşleşir; "dropbox.com" -> "x.com" EŞLEŞMEZ. */
+/* Is the host exactly the given domain, or a subdomain of it?
+   "www.x.com" -> matches "x.com"; "dropbox.com" -> does NOT match "x.com". */
 static int host_matches(const wchar_t *host, const wchar_t *domain)
 {
     size_t hlen = wcslen(host);
@@ -68,7 +68,7 @@ static int host_matches(const wchar_t *host, const wchar_t *domain)
     const wchar_t *suffix = host + (hlen - dlen);
     if (_wcsicmp(suffix, domain) != 0) return 0;
 
-    /* ya birebir aynı ya da nokta ile ayrılmış alt alan adı olmalı */
+    /* it must be either identical or a dot-separated subdomain */
     return (hlen == dlen) || (suffix[-1] == L'.');
 }
 

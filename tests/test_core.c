@@ -37,7 +37,7 @@ static void test_detector(void)
     PlatformInfo p5 = detect_platform(L"https://vimeo.com/123456");
     assert(p5.type == PLATFORM_GENERIC);
 
-    /* Host eşleşmesi: "x.com" alt dizesi başka alan adlarında da geçer. */
+    /* Host matching: the substring "x.com" also appears in other domains. */
     PlatformInfo p6 = detect_platform(L"https://www.dropbox.com/s/abc/file");
     assert(p6.type == PLATFORM_GENERIC);
 
@@ -64,7 +64,7 @@ static void test_sanitization(void)
     printf("[TEST] Sanitization testing...\n");
 
     wchar_t out[256];
-    sanitize_filename(L"Video: \"Kedi & Köpek\" <Önemli> | 1080p? *Test*", out, 256, L"default");
+    sanitize_filename(L"Video: \"Cat & Dog\" <Important> | 1080p? *Test*", out, 256, L"default");
     assert(wcschr(out, L'<') == NULL);
     assert(wcschr(out, L'>') == NULL);
     assert(wcschr(out, L':') == NULL);
@@ -72,7 +72,7 @@ static void test_sanitization(void)
     assert(wcschr(out, L'|') == NULL);
     assert(wcschr(out, L'?') == NULL);
     assert(wcschr(out, L'*') == NULL);
-    assert(wcsstr(out, L"Kedi & Köpek") != NULL);
+    assert(wcsstr(out, L"Cat & Dog") != NULL);
 
     sanitize_filename(L"CON.mp4", out, 256, L"default");
     assert(_wcsicmp(out, L"_CON.mp4") == 0);
@@ -226,7 +226,7 @@ static void test_codec_selector(void)
     };
     SelectionResult r12;
     assert(!select_best_format(audio_only, 1, L"video", 0, 0, L"opus", &r12));
-    assert(wcsstr(r12.reason, L"Yalnızca Ses") != NULL);
+    assert(wcsstr(r12.reason, L"Audio Only") != NULL);
 
     /* Test 13: No audio source in audio mode fails with a clear reason */
     StreamFormat video_only[] = {
@@ -236,8 +236,8 @@ static void test_codec_selector(void)
     assert(!select_best_format(video_only, 1, L"audio", 0, 0, L"opus", &r13));
     assert(r13.reason[0] != L'\0');
 
-    /* Test 14: Force MP4 + H.264 video + yalnızca Opus ses ->
-       video kopyalanır, SADECE ses AAC'ye dönüşür (tam recode değil). */
+    /* Test 14: Force MP4 + H.264 video + Opus audio only ->
+       the video is copied, ONLY the audio is converted to AAC (not a full recode). */
     StreamFormat h264_opus_only[] = {
         {"137", "mp4", "avc1.640028", "none", 1920, 1080, 30, 3000, 0, 3000},
         {"251", "webm", "none", "opus", 0, 0, 0, 0, 160, 160},
@@ -250,7 +250,7 @@ static void test_codec_selector(void)
     assert(r14.needs_reencode == 1);
     assert(r14.audio_only_reencode == 1);
 
-    /* Test 15: Force MP4 + VP9 video -> tam dönüşüm gerekli (audio_only DEĞİL). */
+    /* Test 15: Force MP4 + VP9 video -> a full conversion is required (audio_only NO). */
     StreamFormat vp9_mp4_only[] = {
         {"248", "webm", "vp9", "none", 1920, 1080, 30, 2500, 0, 2500},
         {"251", "webm", "none", "opus", 0, 0, 0, 0, 160, 160},
@@ -276,7 +276,7 @@ static void test_cjson(void)
     assert(strcmp(t->valuestring, "Merhaba") == 0);
     cJSON *d = cJSON_GetObjectItem(root, "duration");
     assert(d && cJSON_IsNumber(d) && d->valueint == 215);
-    /* Anahtar arama case-sensitive olmalı */
+    /* Key lookup must be case-sensitive */
     assert(cJSON_GetObjectItem(root, "TITLE") == NULL);
     cJSON_Delete(root);
 
@@ -290,34 +290,34 @@ static void test_cjson(void)
     assert(v[4] == '\0');
     cJSON_Delete(emo);
 
-    /* BMP dışı olmayan, Türkçe karakter kaçışı: \u00E7 = ç (2 bayt) */
+    /* Unicode escape for a non-ASCII letter: \u00E7 = ç (2 bytes) */
     cJSON *tr = cJSON_Parse("{\"t\":\"\\u00E7\"}");
     assert(tr != NULL);
     cJSON *trt = cJSON_GetObjectItem(tr, "t");
     assert(trt && strcmp(trt->valuestring, "\xC3\xA7") == 0);
     cJSON_Delete(tr);
 
-    /* Eşleşmemiş surrogate: geçersiz bayt dizisi üretmemeli */
+    /* Unmatched surrogate: must not produce an invalid byte sequence */
     cJSON *lone = cJSON_Parse("{\"t\":\"\\uD83D\"}");
     assert(lone != NULL);
     cJSON *lt = cJSON_GetObjectItem(lone, "t");
     assert(lt && strcmp(lt->valuestring, "?") == 0);
     cJSON_Delete(lone);
 
-    /* Kesik girdi: kaçış dizisi yarım kalmış -> NULL, çökme yok */
+    /* Truncated input: incomplete escape sequence -> NULL, no crash */
     assert(cJSON_Parse("{\"t\":\"abc\\") == NULL);
     assert(cJSON_Parse("{\"t\":\"abc") == NULL);
     assert(cJSON_Parse("") == NULL);
     assert(cJSON_Parse(NULL) == NULL);
 
-    /* Derinlik sınırı: 100 seviye iç içe dizi -> NULL */
+    /* Depth limit: a 100-level nested array -> NULL */
     char deep[256];
     memset(deep, '[', 100);
     memset(deep + 100, ']', 100);
     deep[200] = '\0';
     assert(cJSON_Parse(deep) == NULL);
 
-    /* Makul derinlik (10) sorun değil */
+    /* Reasonable depth (10) is fine */
     char ok_depth[64];
     for (int i = 0; i < 10; i++) { ok_depth[i] = '['; ok_depth[10 + i] = ']'; }
     ok_depth[20] = '\0';

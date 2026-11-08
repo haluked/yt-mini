@@ -5,7 +5,7 @@
 
 /* ------------------------------------------------------------------
    Game Boy (DMG) 4 tonlu palet
-   Tüm arayüz yalnızca bu dört renkten oluşur; ara tonlar 1 px
+   The whole interface uses only these four colors; intermediate tones are 1 px
    dama deseniyle (dither) elde edilir.
    ------------------------------------------------------------------ */
 #define GB_DARKEST   RGB(0x0F, 0x38, 0x0F)
@@ -13,29 +13,29 @@
 #define GB_LIGHT     RGB(0x8B, 0xAC, 0x0F)
 #define GB_LIGHTEST  RGB(0x9B, 0xBC, 0x0F)
 
-/* Köşe biçimi.
-   GB_CORNER_CHAMFER: piksel basamaklı 45 derece kesik köşe (8-bit dili).
-   GB_CORNER_SMOOTH : kenar yumuşatmalı (anti-aliased) yuvarlak köşe.
-   Varsayılan derleme zamanında GB_CORNER_DEFAULT ile seçilir; önizleme
-   derlemeleri -DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH ile ayrılır. */
+/* Corner style.
+   GB_CORNER_CHAMFER: stepped 45-degree cut corner (8-bit language).
+   GB_CORNER_SMOOTH : anti-aliased rounded corner.
+   The default is chosen at build time with GB_CORNER_DEFAULT; preview
+   builds override it with -DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH. */
 #define GB_CORNER_CHAMFER 0
 #define GB_CORNER_SMOOTH  1
 
 int  gb_radius(int large);
 
-/* Yuvarlatılmış (veya kesik köşeli) dolgu ve çerçeve.
-   bg: köşe dışında kalan alanın rengi (arka plan).
-   inner: çerçevenin içini dolduracak renk. */
+/* Rounded (or chamfered) fill and frame.
+   bg: color of the area outside the corner (background).
+   inner: color that fills the inside of the frame. */
 void gb_fill_round(HDC hdc, const RECT *rc, COLORREF color, COLORREF bg);
 void gb_frame_round(HDC hdc, const RECT *rc, COLORREF color, int thickness,
                     COLORREF bg, COLORREF inner, int large);
 
-/* Pencereyi köşelerinden yuvarlatır (bölge tabanlı; AA yoktur). */
+/* Rounds the window corners (region based; no AA). */
 void gb_round_window(HWND hWnd, int large);
 
-/* Gövde biçiminde, sağ-alt köşeye kaydırılmış sert (2 px) gölge.
-   Gölge gövdenin dışında kalan bölgeye kırpılarak çizilir; böylece
-   yuvarlatılmış köşelerde çentik oluşmaz. */
+/* Hard (2 px) shadow shaped like the body, offset to the bottom-right.
+   The shadow is clipped to the area outside the body, so
+   rounded corners do not get a notch. */
 void gb_shadow(HDC hdc, const RECT *body, int offset, COLORREF color);
 
 /* Owner-draw denetim rolleri */
@@ -57,12 +57,12 @@ void gb_text(HDC hdc, HFONT font, COLORREF color, const RECT *rc,
              const wchar_t *text, UINT flags);
 void gb_icon(HDC hdc, int x, int y, int scale, int kind);
 
-/* kind: GB_ROLE_* ; checked yalnızca CHIP/CHECK için anlamlı */
+/* kind: GB_ROLE_* ; checked is only meaningful for CHIP/CHECK */
 void gb_draw_control(const DRAWITEMSTRUCT *dis, HFONT font, int role,
                      int checked, int hover);
 
-/* Açılır liste (combobox yerine). anchor, sahibi pencerenin istemci
-   koordinatlarındadır. Seçim yapılınca cb(index, user) çağrılır. */
+/* Dropdown list (instead of a combobox). anchor is in the owner window's
+   client coordinates. On selection cb(index, user) is called. */
 typedef void (*GbPickCallback)(int index, void *user);
 int  gb_dropdown_open(HWND owner, const RECT *anchor,
                       const wchar_t *const *items, int count, int selected,
@@ -70,7 +70,7 @@ int  gb_dropdown_open(HWND owner, const RECT *anchor,
 void gb_dropdown_close(void);
 int  gb_dropdown_active(void);
 
-/* Game Boy görünümlü modal mesaj kutusu.
+/* Game Boy style modal message box.
    flags: MB_OK / MB_YESNO / MB_YESNOCANCEL + MB_ICON* */
 int gb_message_box(HWND owner, const wchar_t *title, const wchar_t *text,
                    UINT flags);

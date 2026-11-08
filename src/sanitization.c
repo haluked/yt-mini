@@ -48,7 +48,7 @@ void sanitize_filename(
 )
 {
     if (!output || max_out_len == 0) return;
-    if (!default_name) default_name = L"indirilen_medya";
+    if (!default_name) default_name = L"downloaded_media";
 
     if (!input || *input == L'\0') {
         wcsncpy(output, default_name, max_out_len - 1);
@@ -168,7 +168,7 @@ int safe_join_path(
     if (!base_dir || !filename || !out_path || max_out_len == 0) return 0;
 
     wchar_t clean_name[260];
-    sanitize_filename(filename, clean_name, sizeof(clean_name)/sizeof(clean_name[0]), L"medya");
+    sanitize_filename(filename, clean_name, sizeof(clean_name)/sizeof(clean_name[0]), L"media");
 
     wchar_t combined[1024];
     _snwprintf(combined, sizeof(combined)/sizeof(combined[0]), L"%ls\\%ls", base_dir, clean_name);

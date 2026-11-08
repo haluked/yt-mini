@@ -42,7 +42,7 @@ static const char *skip(const char *in)
 
 static const char *parse_value(cJSON *item, const char *value, int depth);
 
-/* Aşırı iç içe (bozuk/saldırı) JSON'da stack taşmasını önler. */
+/* Prevents stack overflow on excessively nested (malformed/attack) JSON. */
 #define CJSON_MAX_DEPTH 64
 
 static const char *parse_number(cJSON *item, const char *num)
@@ -85,7 +85,7 @@ static const char *parse_string(cJSON *item, const char *str)
         if (*ptr == '\\')
         {
             ptr++;
-            if (!*ptr) return NULL;   /* kesik girdi: kaçış dizisi yarım kalmış */
+            if (!*ptr) return NULL;   /* truncated input: escape sequence left incomplete */
         }
         ptr++;
     }
@@ -112,10 +112,10 @@ static const char *parse_string(cJSON *item, const char *str)
                 case '\"': case '\\': case '/': *ptr2++ = *ptr; break;
                 case 'u':
                 {
-                    /* \uXXXX kaçışı. Emoji gibi karakterler UTF-16 surrogate
-                       çifti olarak gelir (\uD83D\uDE00); bunlar iki ayrı
-                       3 baytlık dizi yerine TEK doğru UTF-8 kod noktasına
-                       çevrilmelidir. */
+                    /* \uXXXX escape. Characters such as emoji arrive as a UTF-16 surrogate
+                       pair (\uD83D\uDE00); these must be converted into a SINGLE
+                       correct UTF-8 code point instead of two separate 3-byte
+                       sequences. */
                     int hi_ok = 0, lo_ok = 0;
                     unsigned int uc = parse_hex4(ptr + 1, &hi_ok);
                     if (!hi_ok) { *ptr2++ = '?'; break; }
@@ -132,12 +132,12 @@ static const char *parse_string(cJSON *item, const char *str)
                             *ptr2++ = (char)(0x80 | ((cp >> 12) & 0x3F));
                             *ptr2++ = (char)(0x80 | ((cp >> 6) & 0x3F));
                             *ptr2++ = (char)(0x80 | (cp & 0x3F));
-                            ptr += 6;  /* düşük surrogate kaçışını da tükettik */
+                            ptr += 6;  /* we also consumed the low surrogate escape */
                             break;
                         }
                     }
                     if (uc >= 0xD800 && uc <= 0xDFFF) {
-                        /* eşleşmemiş surrogate: geçersiz UTF-8 yerine belirleyici '?' */
+                        /* unmatched surrogate: use a deterministic '?' instead of invalid UTF-8 */
                         *ptr2++ = '?';
                         break;
                     }

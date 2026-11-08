@@ -38,7 +38,7 @@ typedef struct {
     const wchar_t *current_item_name;
     DWORD last_update_tick;
     int last_percent;
-    wchar_t fail_msg[256];   /* Hangi adım neden başarısız oldu (kullanıcıya gösterilir) */
+    wchar_t fail_msg[256];   /* Which step failed and why (shown to the user) */
 } BootstrapState;
 
 /* IBindStatusCallback implementasyonu */
@@ -111,7 +111,7 @@ static HRESULT STDMETHODCALLTYPE cb_OnProgress(
     int pct = (ulProgressMax > 0) ? (int)((double)ulProgress * 100.0 / (double)ulProgressMax) : 0;
     if (pct > 100) pct = 100;
 
-    /* Arayüzü çok sık güncelleyip yormamak için: ya yüzde değiştiğinde ya da en az 100ms geçtiğinde çiz */
+    /* Avoid over-updating the UI: redraw when the percentage changes or at least every 100 ms */
     if (pct != self->state->last_percent || (now - self->state->last_update_tick) > 100) {
         self->state->last_percent = pct;
         self->state->last_update_tick = now;
@@ -125,11 +125,11 @@ static HRESULT STDMETHODCALLTYPE cb_OnProgress(
             double cur_mb = (double)ulProgress / (1024.0 * 1024.0);
             if (ulProgressMax > 0) {
                 double tot_mb = (double)ulProgressMax / (1024.0 * 1024.0);
-                _snwprintf(line, 256, L"İndiriliyor: %ls (%.1f MB / %.1f MB) - %%%d",
+                _snwprintf(line, 256, L"Downloading: %ls (%.1f MB / %.1f MB) - %%%d",
                     self->state->current_item_name ? self->state->current_item_name : L"",
                     cur_mb, tot_mb, pct);
             } else {
-                _snwprintf(line, 256, L"İndiriliyor: %ls (%.1f MB)...",
+                _snwprintf(line, 256, L"Downloading: %ls (%.1f MB)...",
                     self->state->current_item_name ? self->state->current_item_name : L"",
                     cur_mb);
             }
@@ -208,10 +208,10 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
     wchar_t bin_dir[MAX_PATH];
 
     if (state->is_update_only) {
-        /* Güncelleme, UYGULAMANIN GERÇEKTEN KULLANDIĞI kopyayı hedeflesin.
-           find_binary sırası: app dizini -> app\bin -> ..\bin -> LOCALAPPDATA -> PATH.
-           Eski kod hep LOCALAPPDATA'ya yazıyordu; portable kurulumda app\bin'deki
-           kopya öncelikli olduğundan güncelleme sessizce etkisiz kalıyordu. */
+        /* The update must target the copy the APP ACTUALLY USES.
+           find_binary order: app dir -> app\bin -> ..\bin -> LOCALAPPDATA -> PATH.
+           The old code always wrote to LOCALAPPDATA; in a portable install the copy
+           in app\bin takes priority, so the update silently had no effect. */
         wchar_t used[MAX_PATH];
         if (engine_find_ytdlp(used, MAX_PATH)) {
             wchar_t *slash = wcsrchr(used, L'\\');
@@ -237,7 +237,7 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
     _snwprintf(ytdlp_target, MAX_PATH, L"%ls\\yt-dlp.exe", bin_dir);
     _snwprintf(ffmpeg_target, MAX_PATH, L"%ls\\ffmpeg.exe", bin_dir);
 
-    /* Güncelleme modu değilse, hangi araçların eksik olduğunu belirle */
+    /* If not in update mode, determine which tools are missing */
     int need_ytdlp = 0;
     int need_ffmpeg = 0;
 
@@ -258,7 +258,7 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
         state->last_percent = -1;
         state->last_update_tick = 0;
         SendMessageW(state->hwnd_progress, PBM_SETPOS, 0, 0);
-        SetWindowTextW(state->hwnd_status, L"yt-dlp sunucusuna bağlanılıyor...");
+        SetWindowTextW(state->hwnd_status, L"Connecting to the yt-dlp server...");
 
         wchar_t tmp_path[MAX_PATH];
         _snwprintf(tmp_path, MAX_PATH, L"%ls\\yt-dlp.exe.tmp", bin_dir);
@@ -266,12 +266,12 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
 
         HRESULT hr = URLDownloadToFileW(NULL, YTDLP_LATEST_URL, tmp_path, 0, &cb.callback);
         if (hr == S_OK && !state->cancel_requested) {
-            /* Taşıma başarısız olabilir (dosya kullanımda, AV kilidi vb.);
-               sonucu kontrol etmeyip "güncellendi" demek yanıltıcıydı. */
+            /* The move may fail (file in use, AV lock, etc.);
+               not checking the result and claiming "updated" was misleading. */
             if (!MoveFileExW(tmp_path, ytdlp_target, MOVEFILE_REPLACE_EXISTING)) {
                 DeleteFileW(tmp_path);
                 _snwprintf(state->fail_msg, 255,
-                    L"yt-dlp kopyalanamadı (dosya kullanımda olabilir).\nHedef: %ls", ytdlp_target);
+                    L"Could not copy yt-dlp (the file may be in use).\nTarget: %ls", ytdlp_target);
                 state->fail_msg[255] = L'\0';
                 PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
                 return 0;
@@ -279,22 +279,22 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
         } else {
             DeleteFileW(tmp_path);
             if (!state->cancel_requested) {
-                wcsncpy(state->fail_msg, L"yt-dlp indirilemedi! İnternet bağlantınızı kontrol edin.", 255);
+                wcsncpy(state->fail_msg, L"Could not download yt-dlp! Check your internet connection.", 255);
                 state->fail_msg[255] = L'\0';
-                SetWindowTextW(state->hwnd_status, L"yt-dlp indirilemedi!");
+                SetWindowTextW(state->hwnd_status, L"Could not download yt-dlp!");
             }
             PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
             return 0;
         }
     }
 
-    /* 2. ffmpeg.exe indirme (sadece ilk kurulumda ve eksikse) */
+    /* 2. Downloading ffmpeg.exe (first run only, and only if missing) */
     if (need_ffmpeg && !state->cancel_requested) {
         state->current_item_name = L"ffmpeg.exe";
         state->last_percent = -1;
         state->last_update_tick = 0;
         SendMessageW(state->hwnd_progress, PBM_SETPOS, 0, 0);
-        SetWindowTextW(state->hwnd_status, L"ffmpeg sunucusuna bağlanılıyor...");
+        SetWindowTextW(state->hwnd_status, L"Connecting to the ffmpeg server...");
 
         wchar_t tmp_path[MAX_PATH];
         _snwprintf(tmp_path, MAX_PATH, L"%ls\\ffmpeg.exe.tmp", bin_dir);
@@ -305,7 +305,7 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
             if (!MoveFileExW(tmp_path, ffmpeg_target, MOVEFILE_REPLACE_EXISTING)) {
                 DeleteFileW(tmp_path);
                 _snwprintf(state->fail_msg, 255,
-                    L"ffmpeg kopyalanamadı (dosya kullanımda olabilir).\nHedef: %ls", ffmpeg_target);
+                    L"Could not copy ffmpeg (the file may be in use).\nTarget: %ls", ffmpeg_target);
                 state->fail_msg[255] = L'\0';
                 PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
                 return 0;
@@ -313,9 +313,9 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
         } else {
             DeleteFileW(tmp_path);
             if (!state->cancel_requested) {
-                wcsncpy(state->fail_msg, L"ffmpeg indirilemedi! İnternet bağlantınızı kontrol edin.", 255);
+                wcsncpy(state->fail_msg, L"Could not download ffmpeg! Check your internet connection.", 255);
                 state->fail_msg[255] = L'\0';
-                SetWindowTextW(state->hwnd_status, L"ffmpeg indirilemedi!");
+                SetWindowTextW(state->hwnd_status, L"Could not download ffmpeg!");
             }
             PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
             return 0;
@@ -325,7 +325,7 @@ static DWORD WINAPI bootstrap_worker_thread(LPVOID lpParam)
     if (state->cancel_requested) {
         PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 0, 0);
     } else {
-        SetWindowTextW(state->hwnd_status, L"Kurulum tamamlandı!");
+        SetWindowTextW(state->hwnd_status, L"Setup complete!");
         SendMessageW(state->hwnd_progress, PBM_SETPOS, 100, 0);
         Sleep(350);
         PostMessageW(state->hwnd_dlg, WM_USER_BOOTSTRAP_DONE, 1, 0);
@@ -349,7 +349,7 @@ static LRESULT CALLBACK BootstrapDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
             if (!state) return 0;
             state->hwnd_dlg = hWnd;
 
-            /* Yazı tipleri */
+            /* Fonts */
             state->font_bold = CreateFontW(18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
             state->font_normal = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -359,10 +359,10 @@ static LRESULT CALLBACK BootstrapDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
 
             HINSTANCE hInst = ((CREATESTRUCTW*)lParam)->hInstance;
 
-            const wchar_t *title_text = state->is_update_only ? L"yt-dlp Güncellemesi" : L"İlk Kurulum Hazırlığı";
+            const wchar_t *title_text = state->is_update_only ? L"yt-dlp Update" : L"First-Run Setup";
             const wchar_t *desc_text = state->is_update_only
-                ? L"En güncel yt-dlp sürümü indiriliyor ve güncelleniyor..."
-                : L"Gerekli yardımcı araçlar (%LOCALAPPDATA%\\ff-dlp-viewer\\bin) dizinine indiriliyor...";
+                ? L"Downloading and updating the latest yt-dlp release..."
+                : L"Downloading the required tools into %LOCALAPPDATA%\\ff-dlp-viewer\\bin...";
 
             state->hwnd_title = CreateWindowExW(0, L"STATIC", title_text,
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
@@ -378,12 +378,12 @@ static LRESULT CALLBACK BootstrapDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
                 WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
                 24, 88, 420, 20, hWnd, (HMENU)IDC_BS_PROGRESS, hInst, NULL);
 
-            state->hwnd_status = CreateWindowExW(0, L"STATIC", L"Başlatılıyor...",
+            state->hwnd_status = CreateWindowExW(0, L"STATIC", L"Starting...",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
                 24, 114, 320, 20, hWnd, (HMENU)IDC_BS_STATUS, hInst, NULL);
             SendMessageW(state->hwnd_status, WM_SETFONT, (WPARAM)state->font_small, TRUE);
 
-            state->hwnd_cancel = CreateWindowExW(0, L"BUTTON", L"İptal",
+            state->hwnd_cancel = CreateWindowExW(0, L"BUTTON", L"Cancel",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
                 354, 112, 90, 28, hWnd, (HMENU)IDC_BS_CANCEL, hInst, NULL);
             SendMessageW(state->hwnd_cancel, WM_SETFONT, (WPARAM)state->font_normal, TRUE);
@@ -404,7 +404,7 @@ static LRESULT CALLBACK BootstrapDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
                 if (state) {
                     state->cancel_requested = 1;
                     if (state->hwnd_status) {
-                        SetWindowTextW(state->hwnd_status, L"İptal ediliyor...");
+                        SetWindowTextW(state->hwnd_status, L"Cancelling...");
                     }
                     if (state->hwnd_cancel) {
                         EnableWindow(state->hwnd_cancel, FALSE);
@@ -426,7 +426,7 @@ static LRESULT CALLBACK BootstrapDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
             if (state && !state->cancel_requested) {
                 state->cancel_requested = 1;
                 if (state->hwnd_status) {
-                    SetWindowTextW(state->hwnd_status, L"İptal ediliyor...");
+                    SetWindowTextW(state->hwnd_status, L"Cancelling...");
                 }
                 if (state->hwnd_cancel) {
                     EnableWindow(state->hwnd_cancel, FALSE);
@@ -452,10 +452,10 @@ static LRESULT CALLBACK BootstrapDlgProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
 
 static int run_bootstrap_dialog(HWND hParent, int is_update_only, wchar_t *fail_out, size_t fail_len)
 {
-    /* Heap'te allocate: WaitForSingleObject zaman aşımına uğrarsa worker thread
-       hâlâ bu yapıyı kullanıyor olabilir; stack o an ölürdü (use-after-free).
-       Zaman aşımı durumunda bilinçli olarak sızdırılır (güvenli), thread bitince
-       öbür yolda serbest bırakılır. */
+    /* Allocate on the heap: if WaitForSingleObject times out, the worker thread
+       may still be using this struct; the stack would die at that moment (use-after-free).
+       On timeout it is intentionally leaked (safe); when the thread finishes it is
+       freed on the other path. */
     BootstrapState *state = (BootstrapState*)calloc(1, sizeof(BootstrapState));
     if (!state) return 0;
     state->is_update_only = is_update_only;
@@ -474,7 +474,7 @@ static int run_bootstrap_dialog(HWND hParent, int is_update_only, wchar_t *fail_
     wc.lpszClassName = className;
     RegisterClassExW(&wc);
 
-    /* Pencere boyutu ve ekran ortalama */
+    /* Window size and screen centering */
     int dlg_w = 484;
     int dlg_h = 190;
     int screen_w = GetSystemMetrics(SM_CXSCREEN);
@@ -485,7 +485,7 @@ static int run_bootstrap_dialog(HWND hParent, int is_update_only, wchar_t *fail_
     HWND hWnd = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
         className,
-        is_update_only ? L"ff-dlp-viewer - Güncelleme" : L"ff-dlp-viewer - İlk Kurulum",
+        is_update_only ? L"ff-dlp-viewer - Update" : L"ff-dlp-viewer - First Setup",
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
         pos_x, pos_y, dlg_w, dlg_h,
         hParent, NULL, hInst, state
@@ -498,7 +498,7 @@ static int run_bootstrap_dialog(HWND hParent, int is_update_only, wchar_t *fail_
 
     if (hParent) EnableWindow(hParent, FALSE);
 
-    /* Arka plan indirme iş parçacığını başlat */
+    /* Start the background download thread */
     HANDLE hThread = CreateThread(NULL, 0, bootstrap_worker_thread, state, 0, NULL);
 
     MSG msg;
@@ -521,7 +521,7 @@ static int run_bootstrap_dialog(HWND hParent, int is_update_only, wchar_t *fail_
             }
             free(state);
         }
-        /* WAIT_TIMEOUT: worker hâlâ state'i kullanıyor olabilir; dokunma (sızıntı bilinçli). */
+        /* WAIT_TIMEOUT: the worker may still be using state; do not touch it (leak is intentional). */
     } else {
         if (fail_out && fail_len > 0) {
             wcsncpy(fail_out, state->fail_msg, fail_len - 1);
@@ -544,7 +544,7 @@ int bootstrapper_ensure_tools(HWND hParent)
     int has_ytdlp = engine_find_ytdlp(dummy, MAX_PATH);
     int has_ffmpeg = engine_find_ffmpeg(dummy, MAX_PATH);
 
-    /* Zaten mevcutsa hiçbir diyalog göstermeden doğrudan geç */
+    /* If already present, continue without showing any dialog */
     if (has_ytdlp && has_ffmpeg) {
         return 1;
     }
@@ -554,14 +554,14 @@ int bootstrapper_ensure_tools(HWND hParent)
     if (!res) {
         wchar_t msg[512];
         if (fail_msg[0]) {
-            _snwprintf(msg, 512, L"%ls\n\nUygulamanın çalışabilmesi için internet bağlantınız açıkken yeniden başlatmayı deneyin.", fail_msg);
+            _snwprintf(msg, 512, L"%ls\n\nRestart the app with an internet connection so it can continue.", fail_msg);
         } else {
             wcscpy(msg,
-                L"Gerekli araçlar (yt-dlp veya ffmpeg) indirilemedi ya da işlem iptal edildi.\n"
-                L"Uygulamanın çalışabilmesi için internet bağlantınız açıkken yeniden başlatmayı deneyin.");
+                L"Required tools (yt-dlp or ffmpeg) could not be downloaded or the operation was cancelled.\n"
+                L"Restart the app with an internet connection so it can continue.");
         }
         msg[511] = L'\0';
-        MessageBoxW(hParent, msg, L"Kurulum Tamamlanamadı", MB_OK | MB_ICONWARNING);
+        MessageBoxW(hParent, msg, L"Setup Could Not Complete", MB_OK | MB_ICONWARNING);
     }
     return res;
 }
@@ -572,18 +572,18 @@ int bootstrapper_update_ytdlp(HWND hParent)
     int res = run_bootstrap_dialog(hParent, 1, fail_msg, 256);
     if (res) {
         MessageBoxW(hParent,
-            L"yt-dlp başarıyla en güncel sürüme güncellendi.",
-            L"Güncelleme Başarılı",
+            L"yt-dlp was updated to the latest version.",
+            L"Update Successful",
             MB_OK | MB_ICONINFORMATION);
     } else {
         wchar_t msg[512];
         if (fail_msg[0]) {
             _snwprintf(msg, 512, L"%ls", fail_msg);
         } else {
-            wcscpy(msg, L"yt-dlp güncellenirken bir hata oluştu veya işlem iptal edildi.");
+            wcscpy(msg, L"An error occurred while updating yt-dlp, or the operation was cancelled.");
         }
         msg[511] = L'\0';
-        MessageBoxW(hParent, msg, L"Güncelleme Yapılamadı", MB_OK | MB_ICONWARNING);
+        MessageBoxW(hParent, msg, L"Update Failed", MB_OK | MB_ICONWARNING);
     }
     return res;
 }

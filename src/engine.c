@@ -30,14 +30,14 @@ void engine_cleanup(void)
 {
     engine_cancel();
 
-    /* Çalışan thread'ler kritik bölümü kullanmayı bırakmadan silmek
-       use-after-free'e yol açıyordu. Önce bitmelerini bekle. */
+    /* Deleting running threads before they leave the critical section
+       caused use-after-free. Wait for them to finish first. */
     if (g_workers_done) {
         WaitForSingleObject(g_workers_done, 5000);
     }
 
-    /* Hâlâ çalışan worker varsa ne kritik bölümü ne de event'i kapat:
-       worker_finished() kapanmış handle'a SetEvent çağırabilirdi. */
+    /* If a worker is still running, close neither the critical section nor the event:
+       worker_finished() could call SetEvent on a closed handle. */
     int idle = (InterlockedCompareExchange(&g_active_workers, 0, 0) == 0);
     if (idle) {
         DeleteCriticalSection(&g_engine_cs);
@@ -79,7 +79,7 @@ void engine_cancel(void)
     EnterCriticalSection(&g_engine_cs);
     g_cancel_requested = 1;
     if (g_current_job) {
-        /* Job object yt-dlp ile birlikte ffmpeg alt sürecini de sonlandırır. */
+        /* The job object also terminates the ffmpeg child process along with yt-dlp. */
         TerminateJobObject(g_current_job, 1);
     } else if (g_current_process && g_current_process != INVALID_HANDLE_VALUE) {
         TerminateProcess(g_current_process, 0);
@@ -169,8 +169,8 @@ static HANDLE create_kill_job(void)
     return job;
 }
 
-/* Komut satırına tırnak içinde giren değerlerde tırnak/ters bölü/kontrol
-   karakteri olmamalı; aksi halde argüman sınırı aşılabilir. */
+/* Values placed in quotes on the command line must not contain quotes, backslashes
+   or control characters; otherwise the argument boundary could be escaped. */
 static int safe_command_arg(const wchar_t *s)
 {
     if (!s || !*s) return 0;
@@ -196,9 +196,9 @@ static int utf8_to_wide_bounded(const char *src, int src_len, wchar_t *dst, size
     return 1;
 }
 
-/* UTF-8 metni sabit genişlikli alana sığdırır. MultiByteToWideChar, hedef
-   tampon küçükse HİÇBİR ŞEY yazmaz (0 döner); bu yüzden uzun başlıklarda
-   alan boş kalıyordu. Bayt sınırını karakter sınırına hizalayıp kısaltıyoruz. */
+/* Fits UTF-8 text into a fixed-width field. MultiByteToWideChar writes
+   NOTHING if the target buffer is too small (returns 0); so long titles left
+   the field empty. We align the byte limit to a character boundary and truncate. */
 static void utf8_to_wide_field(const char *src, wchar_t *dst, size_t wide_cap)
 {
     if (!dst || wide_cap < 2) {
@@ -213,7 +213,7 @@ static void utf8_to_wide_field(const char *src, wchar_t *dst, size_t wide_cap)
 
     int limit = (int)(wide_cap - 1);
     if (limit > bytes) limit = bytes;
-    /* Çok baytlı bir karakterin ortasında kesmemek için geri sar. */
+    /* Step back so a multi-byte character is not cut in half. */
     while (limit > 0 && ((unsigned char)src[limit] & 0xC0) == 0x80) limit--;
     if (limit <= 0) return;
 
@@ -255,9 +255,9 @@ static int ensure_directory(const wchar_t *dir)
     return rc == ERROR_SUCCESS || rc == ERROR_ALREADY_EXISTS || rc == ERROR_FILE_EXISTS;
 }
 
-/* Bir pipe'ı EOF'a kadar okuyup İLK `cap - 1` baytı buf'a yazar.
-   Tampon dolduktan sonra da okumaya devam eder: çocuk süreç stderr'e yazarken
-   bloke olmasın (aksi halde iki pipe'lı kurulumda kilitlenme olur). */
+/* Reads a pipe until EOF and writes the FIRST `cap - 1` bytes into buf.
+   It keeps reading after the buffer is full so the child process does not
+   block while writing to stderr (otherwise the two-pipe setup would deadlock). */
 static void drain_pipe_blocking(HANDLE pipe, char *buf, size_t cap, size_t *out_len)
 {
     char chunk[1024];
@@ -280,9 +280,9 @@ static void drain_pipe_blocking(HANDLE pipe, char *buf, size_t cap, size_t *out_
     if (out_len) *out_len = len;
 }
 
-/* yt-dlp ayrı video/ses akışlarını ayrı ayrı indirdiği için tek bir "son
-   hedef" yeterli değil: birleştirme hatasında birden fazla ara dosya kalabilir.
-   Son 4 hedefi tut (normalde en fazla 2 tane olur). */
+/* yt-dlp downloads separate video/audio streams individually, so a single "final
+   destination" is not enough: a merge failure can leave multiple intermediate files.
+   Keep the last 4 destinations (normally there are at most 2). */
 #define MAX_TRACKED_DESTS 4
 #define DEST_BUF_LEN (MAX_PATH * 2)
 
@@ -325,9 +325,9 @@ static DWORD WINAPI stderr_drain_thread(LPVOID param)
     return 0;
 }
 
-/* yt-dlp'nin --print-to-file çıktısı UTF-8'dir; dil/kod sayfasından bağımsız
-   olduğu için nihai dosya yolunu buradan okuyoruz. Dosyanın son boş olmayan
-   satırını döndürür. */
+/* yt-dlp's --print-to-file output is UTF-8; independent of language or code page,
+   so we read the final file path from there. It returns the file's last
+   non-empty line. */
 static int read_last_utf8_line(const wchar_t *path, wchar_t *out, size_t max_len)
 {
     if (!out || max_len == 0) return 0;
@@ -370,8 +370,8 @@ static int read_last_utf8_line(const wchar_t *path, wchar_t *out, size_t max_len
     return 1;
 }
 
-/* stdout satırları UTF-8 olmayabilir (yt-dlp cp1254 yazabiliyor). Önce UTF-8
-   dene, olmazsa sistem ANSI kod sayfasına düş. */
+/* stdout lines may not be UTF-8 (yt-dlp can emit cp1254). Try UTF-8 first,
+   then fall back to the system ANSI code page. */
 static void decode_path_bytes(const char *src, wchar_t *dst, size_t max_len)
 {
     if (!dst || max_len == 0) return;
@@ -383,11 +383,11 @@ static void decode_path_bytes(const char *src, wchar_t *dst, size_t max_len)
     else dst[n] = L'\0';
 }
 
-/* yt-dlp bir Python programıdır. PYTHONUTF8=1 Python'un kendi dosya/G/Ç
-   katmanını UTF-8'e zorlar; ancak yt-dlp.exe'nin KONSOL çıktısı yine de yerel
-   kod sayfasında (Türkçe Windows'ta cp1254) gelebiliyor. Bu yüzden:
-     - JSON çıktısı ASCII kaçışlıdır (\u00f6) -> her zaman güvenli,
-     - nihai dosya yolu --print-to-file ile UTF-8 dosyadan okunur. */
+/* yt-dlp is a Python program. PYTHONUTF8=1 forces Python's own file I/O
+   layer to UTF-8; however yt-dlp.exe's CONSOLE output can still arrive in the
+   local code page (cp1254 on Turkish Windows). Therefore:
+     - JSON output is ASCII-escaped (\u00f6) -> always safe,
+     - the final file path is read from a UTF-8 file via --print-to-file. */
 static wchar_t *build_child_environment(void)
 {
     LPCWSTR src = GetEnvironmentStringsW();
@@ -408,15 +408,15 @@ static wchar_t *build_child_environment(void)
 
     memcpy(env, src, total * sizeof(wchar_t));
     memcpy(env + total, extra, extra_len * sizeof(wchar_t));
-    env[total + extra_len] = L'\0';                   /* blok sonlandıran ikinci NUL */
+    env[total + extra_len] = L'\0';                   /* second NUL terminating the block */
 
     FreeEnvironmentStringsW((LPWSTR)src);
     return env;
 }
 
-/* Paketlenen ffmpeg her zaman MP3 kodlayıcısı içermiyor; UI'da boş yere
-   "MP3" seçeneği göstermemek ve indirmeyi yarıda bırakmamak için bir kez
-   kontrol edip önbelleğe alıyoruz. */
+/* The bundled ffmpeg does not always include an MP3 encoder; to avoid showing
+   a pointless "MP3" option and failing downloads halfway, we check once
+   and cache the result. */
 int engine_ffmpeg_can_encode_mp3(void)
 {
     static int cached = -1;
@@ -456,8 +456,8 @@ int engine_ffmpeg_can_encode_mp3(void)
         return 0;
     }
 
-    /* Çıktı büyük olabilir; tamponu doldursak bile okumaya devam et.
-       ffmpeg takılırsa uygulama açılışta donmasın diye toplam süre sınırlı. */
+    /* The output may be large; keep reading even after the buffer is full.
+       The total time is limited so a stuck ffmpeg cannot freeze startup. */
     char out[32768];
     size_t len = 0;
     DWORD got = 0;
@@ -477,7 +477,7 @@ int engine_ffmpeg_can_encode_mp3(void)
             continue;
         }
         if (WaitForSingleObject(pi.hProcess, 20) == WAIT_OBJECT_0) {
-            /* Süreç bitti: kalan baytları son kez boşalt. */
+            /* Process finished: drain the remaining bytes one last time. */
             while (PeekNamedPipe(hReadPipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
                 DWORD want = avail > (DWORD)sizeof(chunk) ? (DWORD)sizeof(chunk) : avail;
                 if (!ReadFile(hReadPipe, chunk, want, &got, NULL) || got == 0) break;
@@ -500,8 +500,8 @@ int engine_ffmpeg_can_encode_mp3(void)
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
 
-    /* Sonucu yalnızca ffmpeg gerçekten çalışıp çıktı verdiyse önbelleğe al;
-       yoksa geçici bir hata (AV kilidi vb.) MP3'ü oturum boyunca kapatırdı. */
+    /* Cache the result only if ffmpeg actually ran and produced output;
+       otherwise a temporary error (AV lock, etc.) would disable MP3 for the whole session. */
     if (finished) {
         cached = (strstr(out, "libmp3lame") || strstr(out, "libshine") ||
                   strstr(out, "mp3_mf")) ? 1 : 0;
@@ -513,7 +513,7 @@ int engine_ffmpeg_can_encode_mp3(void)
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len)
 {
     if (seconds <= 0) {
-        wcsncpy(out_str, L"Bilinmiyor", max_len - 1);
+        wcsncpy(out_str, L"Unknown", max_len - 1);
         out_str[max_len - 1] = L'\0';
         return;
     }
@@ -577,8 +577,8 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
     cJSON *formats_array = cJSON_GetObjectItem(root, "formats");
     if (cJSON_IsArray(formats_array)) {
         int arr_size = cJSON_GetArraySize(formats_array);
-        /* yt-dlp formatları kötüden iyiye sıralar. Sınır dolarsa baştan değil
-           sondan alarak EN İYİ formatların listede kalmasını garanti ederiz. */
+        /* yt-dlp lists formats from worst to best. If the limit is reached, take
+           from the end so the BEST formats stay in the list. */
         int start = (arr_size > MAX_FORMATS) ? (arr_size - MAX_FORMATS) : 0;
         int f_idx = 0;
         for (int i = start; i < arr_size && f_idx < MAX_FORMATS; i++) {
@@ -626,7 +626,7 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
         meta->num_resolutions = get_available_resolutions(meta->formats, meta->format_count, meta->available_resolutions, MAX_RESOLUTIONS);
     }
 
-    /* Eğer 'formats' dizisi yoksa veya boşsa, root düzeyindeki tekil format bilgilerini kontrol et */
+    /* If the 'formats' array is missing or empty, check the single format info at root level */
     if (meta->format_count == 0) {
         cJSON *id = cJSON_GetObjectItem(root, "format_id");
         cJSON *ext = cJSON_GetObjectItem(root, "ext");
@@ -678,7 +678,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         LeaveCriticalSection(&g_engine_cs);
 
         if (p->callback) {
-            p->callback(0, NULL, L"yt-dlp.exe bulunamadı! Lütfen bin/ klasörüne yerleştirin.", p->user_data);
+            p->callback(0, NULL, L"yt-dlp.exe not found! Please place it in the bin/ folder.", p->user_data);
         }
         free(p);
         return 0;
@@ -689,7 +689,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
 
-        if (p->callback) p->callback(0, NULL, L"Geçersiz bağlantı adresi.", p->user_data);
+        if (p->callback) p->callback(0, NULL, L"Invalid link address.", p->user_data);
         free(p);
         return 0;
     }
@@ -697,8 +697,8 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     wchar_t cmd_line[2048];
     _snwprintf(cmd_line, 2048, L"\"%ls\" --dump-json --no-playlist --no-warnings \"%ls\"", ytdlp_path, p->url);
 
-    /* stdout: yalnızca JSON; stderr: uyarı/hata satırları.
-       Aynı pipe'a karışsalar JSON'dan önce gelen tek bir satır bile ayrıştırmayı bozuyordu. */
+    /* stdout: JSON only; stderr: warning/error lines.
+       If they shared a pipe, even a single line before the JSON broke parsing. */
     HANDLE hReadPipe = NULL, hWritePipe = NULL;
     HANDLE hErrReadPipe = NULL, hErrWritePipe = NULL;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
@@ -712,7 +712,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         g_engine_state = ENGINE_STATE_IDLE;
         LeaveCriticalSection(&g_engine_cs);
 
-        if (p->callback) p->callback(0, NULL, L"Boru hattı oluşturulamadı.", p->user_data);
+        if (p->callback) p->callback(0, NULL, L"Could not create the pipe.", p->user_data);
         free(p);
         return 0;
     }
@@ -748,7 +748,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         CloseHandle(hErrWritePipe);
         CloseHandle(hErrReadPipe);
         if (job) CloseHandle(job);
-        if (p->callback) p->callback(0, NULL, L"yt-dlp süreci başlatılamadı.", p->user_data);
+        if (p->callback) p->callback(0, NULL, L"Could not start the yt-dlp process.", p->user_data);
         free(p);
         return 0;
     }
@@ -794,7 +794,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         if (hJob) CloseHandle(hJob);
         if (hProc) CloseHandle(hProc);
         if (pi.hThread) CloseHandle(pi.hThread);
-        if (p->callback) p->callback(0, NULL, L"Bellek yetersiz.", p->user_data);
+        if (p->callback) p->callback(0, NULL, L"Out of memory.", p->user_data);
         free(p);
         return 0;
     }
@@ -803,10 +803,10 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     char chunk[8192];
     int truncated = 0;
 
-    /* stderr ayrı bir thread'de sürekli boşaltılır. Aksi halde çocuk 64 KB'tan
-       fazla hata/uyarı yazarsa stderr pipe'ı dolar, çocuk bloke olur ve biz
-       stdout'ta EOF beklerken uygulama kilitlenirdi. Parametreler heap'te:
-       join zaman aşımına uğrarsa thread'in ölü stack'e yazmasını engeller. */
+    /* stderr is drained continuously in a separate thread. Otherwise, if the child
+       writes more than 64 KB of errors/warnings, the stderr pipe fills, the child
+       blocks and the app deadlocks waiting for EOF on stdout. Parameters live on
+       the heap so a join timeout cannot leave a thread writing to a dead stack. */
     char err_buf[4096];
     err_buf[0] = '\0';
     StderrDrainParams *drain = (StderrDrainParams*)calloc(1, sizeof(StderrDrainParams));
@@ -817,11 +817,11 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     }
 
     while (ReadFile(hReadPipe, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
-        if (truncated) continue;   /* zaten taştı: boru tıkanmasın diye sadece boşalt */
+        if (truncated) continue;   /* already overflowed: just drain so the pipe does not clog */
 
         if (buf_len + bytes_read + 1 >= buf_capacity) {
-            /* Kapasiteyi SADECE realloc başarılıysa büyüt. Aksi halde eski
-               tampon küçük kalırken kontrol geçer ve memcpy taşar. */
+            /* Grow the capacity ONLY if realloc succeeds. Otherwise the old
+               buffer stays small, the check passes and memcpy overflows. */
             size_t new_cap = (buf_capacity * 2) + bytes_read + 1;
             char *new_buf = (char*)realloc(json_buf, new_cap);
             if (!new_buf) {
@@ -839,8 +839,8 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     CloseHandle(hReadPipe);
     WaitForSingleObject(pi.hProcess, INFINITE);
 
-    /* Süreç bitti: stderr yazan thread EOF alıp döner. Thread açılamadıysa
-       (çok nadir) aynı işi burada yap. */
+    /* Process finished: the stderr thread returns after EOF. If the thread
+       could not be created (very rare), do the same work here. */
     if (hDrainThread) {
         DWORD join_res = WaitForSingleObject(hDrainThread, 10000);
         CloseHandle(hDrainThread);
@@ -850,8 +850,8 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
             free(drain);
             CloseHandle(hErrReadPipe);
         } else {
-            /* Thread hâlâ çalışıyor olabilir: handle'ları ve tamponu bilinçli
-               sızdır (süreç çıkışında temizlenir) ki ölü belleğe yazmasın. */
+            /* The thread may still be running: intentionally leak the handles and
+               buffer (cleaned up at process exit) so it never writes to dead memory. */
             hErrReadPipe = NULL;
         }
     } else {
@@ -879,12 +879,12 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     if (was_cancelled) {
         if (p->callback) p->callback(0, NULL, ENGINE_MSG_CANCELLED, p->user_data);
     } else if (truncated) {
-        if (p->callback) p->callback(0, NULL, L"yt-dlp yanıtı çok büyük; medya bilgisi okunamadı.", p->user_data);
+        if (p->callback) p->callback(0, NULL, L"yt-dlp response too large; media info could not be read.", p->user_data);
     } else if (exit_code != 0 || buf_len == 0) {
-        wchar_t err_msg[512] = L"Video bilgisi alınamadı. Bağlantıyı kontrol edin.";
-        if (strstr(err_buf, "Private video")) wcscpy(err_msg, L"Bu video gizli veya erişilemez.");
-        else if (strstr(err_buf, "Sign in to confirm")) wcscpy(err_msg, L"Bu video oturum açma veya yaş onayı gerektiriyor.");
-        else if (strstr(err_buf, "Video unavailable")) wcscpy(err_msg, L"Bu video kullanılamıyor veya silinmiş.");
+        wchar_t err_msg[512] = L"Could not fetch video info. Check the link.";
+        if (strstr(err_buf, "Private video")) wcscpy(err_msg, L"This video is private or unavailable.");
+        else if (strstr(err_buf, "Sign in to confirm")) wcscpy(err_msg, L"This video requires signing in or age verification.");
+        else if (strstr(err_buf, "Video unavailable")) wcscpy(err_msg, L"This video is unavailable or has been removed.");
         else {
             wchar_t detail[512];
             extract_last_error(err_buf, detail, 512);
@@ -903,7 +903,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
             if (p->callback) p->callback(1, meta, NULL, p->user_data);
             free(meta);
         } else if (p->callback) {
-            p->callback(0, NULL, L"Bellek yetersiz.", p->user_data);
+            p->callback(0, NULL, L"Out of memory.", p->user_data);
         }
     }
 
@@ -1031,9 +1031,9 @@ static void parse_progress_line(
     /* 5. Total bytes */
     *out_total = atoll(pipe4 + 1);
 
-    /* Toplam boyut bilinmiyorsa yüzde göstermenin anlamı yok. yt-dlp çoklu
-       akışlarda "%100 / 0 bayt" satırı gönderebiliyor; bu, göstergenin iş
-       bitmeden dolmasına yol açıyordu. */
+    /* Showing a percentage makes no sense when the total size is unknown. With
+       multiple streams yt-dlp can send "100% / 0 bytes", which made the gauge
+       fill before the work was done. */
     if (*out_total <= 0) *out_percent = 0;
 }
 
@@ -1057,34 +1057,34 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     HANDLE job = NULL;
 
     if (!engine_find_ytdlp(ytdlp_path, MAX_PATH)) {
-        download_fail(p, L"yt-dlp.exe bulunamadı! Lütfen bin/ klasörüne yerleştirin.");
+        download_fail(p, L"yt-dlp.exe not found! Please place it in the bin/ folder.");
         return 0;
     }
 
     if (!safe_command_arg(p->url) ||
         !safe_command_arg(p->selection.format_id) ||
         !safe_command_arg(p->selection.expected_container)) {
-        download_fail(p, L"Geçersiz indirme parametresi.");
+        download_fail(p, L"Invalid download parameter.");
         return 0;
     }
 
     int audio_mode = (wcscmp(p->selection.resolution, L"Audio Only") == 0);
     int needs_ffmpeg = audio_mode || !p->selection.is_direct || p->selection.needs_reencode;
     if (needs_ffmpeg && !has_ffmpeg) {
-        download_fail(p, L"ffmpeg.exe bulunamadı. Birleştirme veya dönüştürme için ffmpeg gerekli.");
+        download_fail(p, L"ffmpeg.exe not found. ffmpeg is required for merging or converting.");
         return 0;
     }
 
-    /* Paketlenen ffmpeg'de MP3 kodlayıcısı olmayabilir. İndirmeyi başlatıp
-       yarıda hata vermek yerine burada dur ve net söyle. */
+    /* The bundled ffmpeg may lack an MP3 encoder. Instead of starting the
+       download and failing halfway, stop here and say so clearly. */
     if (audio_mode && _wcsicmp(p->selection.expected_container, L"mp3") == 0 &&
         !engine_ffmpeg_can_encode_mp3()) {
-        download_fail(p, L"Bu ffmpeg sürümünde MP3 kodlayıcısı yok. Lütfen AAC (m4a) veya Opus seçin.");
+        download_fail(p, L"This ffmpeg build has no MP3 encoder. Please choose AAC (m4a) or Opus.");
         return 0;
     }
 
     if (!ensure_directory(p->dest_dir)) {
-        download_fail(p, L"İndirme klasörü oluşturulamadı. Lütfen başka bir klasör seçin.");
+        download_fail(p, L"Could not create the download folder. Please choose another folder.");
         return 0;
     }
 
@@ -1095,9 +1095,9 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         _snwprintf(ffmpeg_dir_arg, sizeof(ffmpeg_dir_arg)/sizeof(wchar_t), L"--ffmpeg-location \"%ls\"", ffmpeg_path);
     }
 
-    /* Uzun başlıklar MAX_PATH'i aşmasın ve aynı başlıklı videolar
-       birbirinin üzerine yazılmasın. Klasör adındaki '%' yt-dlp şablon
-       motorunda özel karakter olduğu için '%%' olarak kaçılır. */
+    /* Keep long titles from exceeding MAX_PATH and stop videos with the same
+       title from overwriting each other. A '%' in the folder name is escaped
+       as '%%' because it is special in the yt-dlp template engine. */
     wchar_t dir_escaped[MAX_PATH * 2];
     {
         const wchar_t *src = p->dest_dir;
@@ -1111,23 +1111,23 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         *dst = L'\0';
     }
 
-    /* Klasör adı '%' içeriyorsa kaçış iki katına çıkar (≤ 2*MAX_PATH).
-       Tamponu buna göre büyüt ve her durumda NUL garantile. */
+    /* If the folder name contains '%', the escape doubles (<= 2*MAX_PATH).
+       Size the buffer accordingly and always guarantee a NUL. */
     wchar_t out_template[MAX_PATH * 2 + 128];
     _snwprintf(out_template, sizeof(out_template)/sizeof(wchar_t),
         L"-o \"%ls\\%%(title).150B [%%(id)s].%%(ext)s\"", dir_escaped);
     out_template[(sizeof(out_template)/sizeof(wchar_t)) - 1] = L'\0';
 
-    /* Nihai dosya yolunu metinden tahmin etmek yerine yt-dlp'ye UTF-8 bir
-       dosyaya yazdırıyoruz: stdout kod sayfası bozuk olabiliyor (ör. cp1254),
-       bu yüzden Türkçe/emoji başlıklı dosyalarda "Dosya Konumunu Aç" yanlış
-       yola gidiyordu. --print-to-file her zaman UTF-8 yazar. */
+    /* Instead of guessing the final path from text, we have yt-dlp write it to
+       a UTF-8 file: the stdout code page can be broken (e.g. cp1254), so
+       with Turkish/emoji titles "Open File Location" went to the wrong
+       path. --print-to-file always writes UTF-8. */
     wchar_t final_path_file[MAX_PATH] = L"";
     wchar_t final_path_arg[MAX_PATH * 2] = L"";
     {
         wchar_t tmp_dir[MAX_PATH];
         tmp_dir[0] = L'\0';
-        /* GetTempPathW tampon küçükse 0 DEĞİL, gereken boyutu döndürür. */
+        /* GetTempPathW returns the required size, NOT 0, when the buffer is small. */
         DWORD tmp_len = GetTempPathW(MAX_PATH, tmp_dir);
         if (tmp_len > 0 && tmp_len < MAX_PATH) {
             _snwprintf(final_path_file, MAX_PATH, L"%lsffdlp_finalpath_%lu.txt",
@@ -1135,7 +1135,7 @@ static DWORD WINAPI download_thread_main(LPVOID param)
             final_path_file[MAX_PATH - 1] = L'\0';
             DeleteFileW(final_path_file);
 
-            /* yt-dlp bunu output template olarak işler: '%' kaçışı şart. */
+            /* yt-dlp treats this as an output template: the '%' escape is required. */
             const wchar_t *src = final_path_file;
             wchar_t *dst = final_path_arg;
             wchar_t *dst_end = final_path_arg + (sizeof(final_path_arg) / sizeof(wchar_t)) - 1;
@@ -1158,9 +1158,9 @@ static DWORD WINAPI download_thread_main(LPVOID param)
             wcscpy(extra_opts, L"-x --audio-format opus");
         }
     } else if (p->selection.audio_only_reencode) {
-        /* Video akışı kopyalanır, yalnızca ses AAC'ye çevrilip MP4'e birleştirilir.
-           (--recode-video kullansaydık kaynak video da yeniden kodlanacaktı.)
-           yt-dlp sözdizimi "PP:ARGS" (PP+EXE:ARGS); '+' ayırıcısı burada YANLIŞ. */
+        /* The video stream is copied; only the audio is converted to AAC and merged into MP4.
+           (using --recode-video would re-encode the source video as well.)
+           yt-dlp syntax is "PP:ARGS" (PP+EXE:ARGS); the '+' separator is WRONG here. */
         _snwprintf(extra_opts, 511,
             L"--merge-output-format %ls --ppa \"Merger:-c:v copy -c:a aac\"",
             p->selection.expected_container);
@@ -1193,7 +1193,7 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     HANDLE hReadPipe = NULL, hWritePipe = NULL;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
     if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
-        download_fail(p, L"Boru hattı oluşturulamadı.");
+        download_fail(p, L"Could not create the pipe.");
         return 0;
     }
     SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
@@ -1228,7 +1228,7 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         CloseHandle(hWritePipe);
         CloseHandle(hReadPipe);
         if (job) CloseHandle(job);
-        if (p->callback) p->callback(L"error", 0, 0, 0, 0, 0, L"", L"İndirme süreci başlatılamadı.", p->user_data);
+        if (p->callback) p->callback(L"error", 0, 0, 0, 0, 0, L"", L"Could not start the download process.", p->user_data);
         free(p);
         return 0;
     }
@@ -1259,9 +1259,9 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     DWORD bytes_read = 0;
     char last_error[768] = "";
     char last_destination[MAX_PATH * 2] = "";
-    /* Yalnızca [download] satırlarından gelen, İNDİRİLEN kaynak dosyalar.
-       Postprocessing hatalarında silinecek adaylar bunlardır; last_destination
-       ise PP çıktısıyla (ör. X.mp3) ezilebildiği için temizlikte kullanılmaz. */
+    /* DOWNLOADED source files coming only from [download] lines.
+       These are the candidates to delete after postprocessing failures; last_destination
+       can be overwritten by the PP output (e.g. X.mp3), so it is not used for cleanup. */
     char download_destinations[MAX_TRACKED_DESTS][DEST_BUF_LEN];
     int download_dest_count = 0;
     memset(download_destinations, 0, sizeof(download_destinations));
@@ -1298,7 +1298,7 @@ static DWORD WINAPI download_thread_main(LPVOID param)
                     last_destination[sizeof(last_destination) - 1] = '\0';
                 } else if (strstr(trimmed, "[VideoConvertor]") != NULL &&
                            strstr(trimmed, " Destination: ") != NULL) {
-                    /* --recode-video sonrası gerçek dosya budur; öncesi silinir. */
+                    /* This is the real file after --recode-video; the previous one is deleted. */
                     const char *p_dest = strstr(trimmed, " Destination: ") + 14;
                     strncpy(last_destination, p_dest, sizeof(last_destination) - 1);
                     last_destination[sizeof(last_destination) - 1] = '\0';
@@ -1353,10 +1353,10 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     if (hProc) CloseHandle(hProc);
     if (pi.hThread) CloseHandle(pi.hThread);
 
-    /* Postprocessing başarısız olduysa yt-dlp indirdiği ara dosyaları bırakır
-       (ör. birleştirme patladığında video/ses akışları). Yalnızca [download]
-       satırlarından gelen KAYNAK dosyaları, bu çalıştırmada oluştuklarını
-       zaman damgasından doğrulayarak temizle. Nihai/PP çıktısı silinmez. */
+    /* If postprocessing fails, yt-dlp leaves the intermediate files it downloaded
+       (e.g. the video/audio streams when merging fails). Delete only the SOURCE
+       files that came from [download] lines, after verifying from their timestamp
+       that they were created in this run. The final/PP output is never deleted. */
     if (!was_cancelled && exit_code != 0) {
         for (int i = 0; i < download_dest_count; i++) {
             wchar_t leftover[MAX_PATH];
@@ -1367,15 +1367,15 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         }
     }
 
-    /* Nihai yol: önce yt-dlp'nin UTF-8 raporu, olmazsa stdout'tan tahmin. */
+    /* Final path: first yt-dlp's UTF-8 report, otherwise guess from stdout. */
     wchar_t wide_dest[MAX_PATH] = L"";
     if (!was_cancelled && exit_code == 0) {
         if (!read_last_utf8_line(final_path_file, wide_dest, MAX_PATH)) {
             decode_path_bytes(last_destination, wide_dest, MAX_PATH);
         }
         if (wide_dest[0] != L'\0' && GetFileAttributesW(wide_dest) == INVALID_FILE_ATTRIBUTES) {
-            /* Rapor edilen yol diskte yoksa (silinmiş/yeniden adlandırılmış)
-               yanlış bilgi vermeyelim. */
+            /* If the reported path is missing on disk (deleted/renamed),
+               do not report the wrong information. */
             wide_dest[0] = L'\0';
         }
     }
@@ -1383,22 +1383,22 @@ static DWORD WINAPI download_thread_main(LPVOID param)
 
     if (p->callback) {
         if (was_cancelled) {
-            p->callback(L"cancelled", 0, 0, 0, 0, 0, L"", L"İndirme kullanıcı tarafından iptal edildi.", p->user_data);
+            p->callback(L"cancelled", 0, 0, 0, 0, 0, L"", L"Download cancelled by the user.", p->user_data);
         } else if (exit_code == 0) {
             p->callback(L"finished", 100.0, 0, 0, last_total, last_total, wide_dest, NULL, p->user_data);
         } else {
             wchar_t detail[512];
-            wchar_t message[768] = L"İndirme sırasında bir hata oluştu.";
+            wchar_t message[768] = L"An error occurred during the download.";
             extract_last_error(last_error, detail, 512);
             if (detail[0]) {
                 if (wcsstr(detail, L"Requested format is not available")) {
-                    wcscpy(message, L"Seçilen format bu bağlantıda mevcut değil. Farklı bir kalite deneyin.");
+                    wcscpy(message, L"The selected format is not available for this link. Try another quality.");
                 } else if (wcsstr(detail, L"ffmpeg") || wcsstr(detail, L"ffprobe")) {
-                    wcscpy(message, L"ffmpeg bulunamadı veya çalıştırılamadı. Birleştirme/dönüştürme yapılamıyor.");
+                    wcscpy(message, L"ffmpeg was not found or could not run. Merging/converting is unavailable.");
                 } else if (wcsstr(detail, L"HTTP Error 403")) {
-                    wcscpy(message, L"Sunucu indirmeye izin vermedi (HTTP 403). Bağlantıyı tarayıcıda açıp tekrar deneyin.");
+                    wcscpy(message, L"The server refused the download (HTTP 403). Open the link in a browser and try again.");
                 } else if (wcsstr(detail, L"Unable to download webpage")) {
-                    wcscpy(message, L"Bağlantıya erişilemedi. İnternet bağlantınızı kontrol edin.");
+                    wcscpy(message, L"Could not reach the link. Check your internet connection.");
                 } else {
                     _snwprintf(message, 768, L"yt-dlp: %ls", detail);
                 }

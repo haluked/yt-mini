@@ -13,7 +13,7 @@
 
 static UINT g_gb_dpi = 96;
 
-/* Köşe yarıçapı tasarım birimi cinsinden (96 DPI taban). */
+/* Corner radius in design units (96 DPI base). */
 #ifndef GB_CORNER_DEFAULT
 #define GB_CORNER_DEFAULT GB_CORNER_CHAMFER
 #endif
@@ -78,7 +78,7 @@ void gb_frame(HDC hdc, const RECT *rc, COLORREF color, int thickness)
     DeleteObject(br);
 }
 
-/* -------------------------------------------------------------- köşeler */
+/* -------------------------------------------------------------- corners */
 
 int gb_radius(int large)
 {
@@ -98,7 +98,7 @@ static COLORREF gb_blend(COLORREF a, COLORREF b, int t)
     return RGB(r, g, bl);
 }
 
-/* Tam sayı karekök (yarıçap başına bir kez hesaplanır; libm gerekmez). */
+/* Integer square root (computed once per radius; no libm needed). */
 static unsigned long gb_isqrt(unsigned long v)
 {
     unsigned long r = 0;
@@ -116,8 +116,8 @@ static unsigned long gb_isqrt(unsigned long v)
     return r;
 }
 
-/* Yumuşak köşe için piksel kapsama oranı (0..255). 1/16 px biriminde
-   piksel merkezinin yay merkezine uzaklığından hesaplanır. */
+/* Pixel coverage ratio for a smooth corner (0..255). Computed in 1/16 px
+   units from the distance between the pixel center and the arc center. */
 static int gb_cov(int i, int j, int r)
 {
     long dx = (long)(16 * r - 16 * i - 8);
@@ -129,8 +129,8 @@ static int gb_cov(int i, int j, int r)
     return (int)(c * 16);
 }
 
-/* Dört köşeyi boyar: içeride kalan pikseller `color`, dışarısı `bg`.
-   mask: 1=sol üst, 2=sağ üst, 4=sol alt, 8=sağ alt. */
+/* Paints the four corners: pixels inside use `color`, outside use `bg`.
+   mask: 1=top left, 2=top right, 4=bottom left, 8=bottom right. */
 static void gb_cut_corners(HDC hdc, const RECT *rc, int r,
                            COLORREF color, COLORREF bg, unsigned mask)
 {
@@ -161,7 +161,7 @@ static void gb_cut_corners(HDC hdc, const RECT *rc, int r,
                     t = 256;
                 } else {
                     int a = gb_cov(i, j, r);
-                    if (a >= 255) continue;     /* tamamen içeride */
+                    if (a >= 255) continue;     /* fully inside */
                     t = 256 - a;
                 }
                 SetPixelV(hdc, ox + sx * i, oy + sy * j, gb_blend(color, bg, t));
@@ -261,8 +261,8 @@ void gb_shadow(HDC hdc, const RECT *body, int offset, COLORREF color)
     DeleteObject(sh);
     DeleteObject(bo);
 
-    /* Bölge taraması ile piksel kesimi arasındaki 1 px farkı kapat:
-       gövdenin sağ-alt köşesindeki kesik pikseller gölgeye bağlanır. */
+    /* Close the 1 px gap between the region scan and the pixel clip:
+       the cut pixels at the bottom-right corner connect to the shadow. */
     gb_cut_corners(hdc, body, r, color, color, 8u);
 }
 
@@ -300,7 +300,7 @@ void gb_round_window(HWND hWnd, int large)
         pts[7].x = 0;     pts[7].y = r;
         rgn = CreatePolygonRgn(pts, 8, ALTERNATE);
     }
-    /* Başarılıysa bölgenin sahipliği sisteme geçer. */
+    /* On success, ownership of the region passes to the system. */
     SetWindowRgn(hWnd, rgn, TRUE);
 }
 
@@ -338,8 +338,8 @@ void gb_icon(HDC hdc, int x, int y, int scale, int kind)
     if (s < 1) s = 1;
 
     if (kind == 0) {
-        /* Küçük ekran: açık çerçeve + koyu cam + açık oynat üçgeni.
-           Başlık çubuğu koyu zeminde durduğu için tonlar ters çevrilir. */
+        /* Small screen: light frame + dark glass + light play triangle.
+           The tones are inverted because the title bar sits on a dark background. */
         r.left = x; r.top = y; r.right = x + 12 * s; r.bottom = y + 10 * s;
         gb_fill(hdc, &r, GB_LIGHTEST);
         r.left = x + 2 * s; r.top = y + 2 * s;
@@ -356,7 +356,7 @@ void gb_icon(HDC hdc, int x, int y, int scale, int kind)
         r.right = x + 7 * s; r.bottom = y + 6 * s;
         gb_fill(hdc, &r, GB_LIGHTEST);
     } else {
-        /* Klasör simgesi */
+        /* Folder icon */
         r.left = x; r.top = y + s; r.right = x + 4 * s; r.bottom = y + 3 * s;
         gb_fill(hdc, &r, GB_DARKEST);
         r.left = x; r.top = y + 2 * s; r.right = x + 10 * s; r.bottom = y + 9 * s;
@@ -409,7 +409,7 @@ void gb_draw_control(const DRAWITEMSTRUCT *dis, HFONT font, int role,
     pressed = (dis->itemState & ODS_SELECTED) != 0;
     disabled = gb_is_disabled(dis);
 
-    /* Zemin: denetimlerin tamamı panel (açık) üzerinde durur. */
+    /* Background: all controls sit on a panel (light surface). */
     gb_fill(dis->hDC, &rc, GB_LIGHTEST);
 
     if (role == GB_ROLE_CHECK) {
@@ -494,7 +494,7 @@ void gb_draw_control(const DRAWITEMSTRUCT *dis, HFONT font, int role,
         if (pressed) cy += gb_scale(1);
 
         if (checked) {
-            /* Kapat: 2 px kalınlığında X */
+            /* Close: 2 px thick X */
             for (i = -3; i <= 3; i++) {
                 RECT p;
                 p.left = cx + gb_scale(i);
@@ -509,7 +509,7 @@ void gb_draw_control(const DRAWITEMSTRUCT *dis, HFONT font, int role,
                 gb_fill(dis->hDC, &p, GB_LIGHTEST);
             }
         } else {
-            /* Küçült: yatay çizgi */
+            /* Minimize: horizontal line */
             RECT m;
             m.left = cx - gb_scale(4);
             m.top = cy - gb_scale(1);
@@ -545,7 +545,7 @@ void gb_draw_control(const DRAWITEMSTRUCT *dis, HFONT font, int role,
     gb_fill_round(dis->hDC, &body, face, GB_LIGHTEST);
     gb_frame_round(dis->hDC, &body, line, border, GB_LIGHTEST, face, 0);
 
-    /* Alt/sağ gölge: basılınca kaybolur */
+    /* Bottom/right shadow: disappears when pressed */
     if (!pressed && !disabled) {
         gb_shadow(dis->hDC, &body, shadow, GB_DARK);
     }
@@ -803,7 +803,7 @@ int gb_dropdown_open(HWND owner, const RECT *anchor,
         return 0;
     }
 
-    /* En uzun satıra göre genişlik */
+    /* Width based on the longest line */
     {
         HDC dc = GetDC(owner);
         HGDIOBJ old = SelectObject(dc, g_drop.font);
@@ -862,7 +862,7 @@ int gb_dropdown_open(HWND owner, const RECT *anchor,
     return 1;
 }
 
-/* ------------------------------------------------------------ mesaj kutusu */
+/* ------------------------------------------------------------ message box */
 
 #define GB_MSG_CLASS L"GbMessageBoxWnd"
 
@@ -950,10 +950,10 @@ static void gb_msg_draw_button(HDC hdc, int index)
     int shadow = gb_scale(2);
     int id = g_msg.btn_id[index];
 
-    if (id == IDOK) label = L"TAMAM";
-    else if (id == IDYES) label = L"EVET";
-    else if (id == IDNO) label = L"HAYIR";
-    else if (id == IDCANCEL) label = L"İPTAL";
+    if (id == IDOK) label = L"OK";
+    else if (id == IDYES) label = L"YES";
+    else if (id == IDNO) label = L"NO";
+    else if (id == IDCANCEL) label = L"CANCEL";
 
     pressed = (g_msg.pressed == index);
     hover = (g_msg.hover == index);
@@ -972,7 +972,7 @@ static void gb_msg_draw_button(HDC hdc, int index)
         ink = GB_LIGHTEST;
     }
 
-    /* arka plan üstünde temiz taban */
+    /* clean base on top of the background */
     gb_fill(hdc, &rc, GB_LIGHTEST);
 
     body = rc;
@@ -1003,7 +1003,7 @@ static void gb_msg_paint(HWND hWnd)
     gb_fill(hdc, &rc, GB_LIGHTEST);
     gb_frame(hdc, &rc, GB_DARKEST, gb_scale(2));
 
-    /* Başlık şeridi */
+    /* Title strip */
     title = rc;
     title.left += gb_scale(2);
     title.top += gb_scale(2);
@@ -1018,7 +1018,7 @@ static void gb_msg_paint(HWND hWnd)
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
 
-    /* İkon */
+    /* Icon */
     if (g_msg.icon_kind != 0) {
         gb_fill(hdc, &g_msg.rc_icon, GB_DARKEST);
         mark[0] = (g_msg.icon_kind == 2) ? L'!' : ((g_msg.icon_kind == 3) ? L'?' : L'X');
@@ -1027,7 +1027,7 @@ static void gb_msg_paint(HWND hWnd)
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
 
-    /* Gövde */
+    /* Body */
     gb_text(hdc, g_msg.font_body, GB_DARKEST, &g_msg.rc_text, g_msg.text,
             DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
 
@@ -1131,7 +1131,7 @@ int gb_message_box(HWND owner, const wchar_t *title, const wchar_t *text, UINT f
     int x, y;
     MSG msg;
 
-    if (!title) title = L"Bilgi";
+    if (!title) title = L"Info";
     if (!text) text = L"";
 
     if (!registered) {

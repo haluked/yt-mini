@@ -3,18 +3,18 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ======================================================
-echo [1/3] Windows Kaynak Dosyalari Derleniyor (windres)
+echo [1/3] Compiling Windows resources (windres)
 echo ======================================================
 if not exist "dist" mkdir "dist"
 
 windres res\res.rc -O coff -o res.o
 if errorlevel 1 (
-    echo [HATA] windres kaynak derlemesi basarisiz oldu!
+    echo [ERROR] windres resource compilation failed!
     exit /b 1
 )
 
 echo ======================================================
-echo [2/3] Native C Binary Derleniyor (Ultra-Lightweight)
+echo [2/3] Compiling the native C binary (ultra-lightweight)
 echo ======================================================
 gcc -O3 -s -flto ^
     -ffunction-sections -fdata-sections ^
@@ -35,11 +35,11 @@ gcc -O3 -s -flto ^
     -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32 -lurlmon
 
 if errorlevel 1 (
-    echo [HATA] GCC derlemesi basarisiz oldu!
+    echo [ERROR] GCC compilation failed!
     exit /b 1
 )
 
 echo ======================================================
-echo [3/3] Derleme Tamamlandi - Boyut Dogrulamasi
+echo [3/3] Build complete - size verification
 echo ======================================================
-powershell -Command "$size = (Get-Item 'dist\ff-dlp-viewer.exe').Length; $kb = [math]::Round($size / 1KB, 2); Write-Host \"Executable Konumu: dist\ff-dlp-viewer.exe\"; Write-Host \"Dosya Boyutu: $size bayt ($kb KB)\"; if ($size -lt 1MB) { Write-Host '>> BASARILI: Hedef < 1 MB kurali saglandi!' -ForegroundColor Green } else { Write-Host '>> HATA: Boyut 1 MB sinirini asti!' -ForegroundColor Red }"
+powershell -Command "$size = (Get-Item 'dist\ff-dlp-viewer.exe').Length; $kb = [math]::Round($size / 1KB, 2); Write-Host \"Executable: dist\ff-dlp-viewer.exe\"; Write-Host \"File size: $size bytes ($kb KB)\"; if ($size -lt 1MB) { Write-Host '>> OK: the < 1 MB target is met!' -ForegroundColor Green } else { Write-Host '>> ERROR: the size exceeded 1 MB!' -ForegroundColor Red }"

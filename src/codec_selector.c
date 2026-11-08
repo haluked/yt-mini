@@ -144,9 +144,9 @@ static int stream_has_audio(const StreamFormat *f)
     return f && f->acodec[0] != '\0' && strcmp(f->acodec, "none") != 0;
 }
 
-/* yt-dlp'in generic extractor'ı doğrudan dosyalarda kodek bilgisi vermez:
-   hem vcodec hem acodec "none" olur. Bu tür akışlar seçilemezse indirme boş
-   format kimliğiyle başlıyordu. */
+/* yt-dlp's generic extractor gives no codec info for direct files:
+   both vcodec and acodec are "none". If such streams could not be selected, downloads
+   started with an empty format id. */
 static int stream_is_direct(const StreamFormat *f)
 {
     return f && f->format_id[0] != '\0' && f->ext[0] != '\0' &&
@@ -218,12 +218,12 @@ static int fill_direct_video(const StreamFormat *f, int force_mp4, SelectionResu
     if (force_mp4 && _wcsicmp(result->expected_container, L"mp4") != 0) {
         result->needs_reencode = 1;
         wcscpy(result->expected_container, L"mp4");
-        wcscpy(result->warning, L"Doğrudan medya dosyası MP4 ile uyumlu değil; ffmpeg ile dönüştürülecek.");
-        wcscpy(result->reason, L"Doğrudan dosya H.264/AAC MP4 biçimine dönüştürülüyor.");
+        wcscpy(result->warning, L"The direct media file is not MP4-compatible; it will be converted with ffmpeg.");
+        wcscpy(result->reason, L"Converting the direct file to H.264/AAC MP4.");
     } else {
         result->needs_reencode = 0;
         _snwprintf(result->reason, 255,
-            L"Doğrudan medya dosyası (kodek bilgisi yok) .%ls olarak olduğu gibi kaydediliyor.",
+            L"Saving the direct media file (no codec info) as-is with .%ls.",
             result->expected_container);
     }
     return 1;
@@ -249,9 +249,9 @@ static int fill_direct_audio(const StreamFormat *f, const char *pref, SelectionR
         wcscpy(result->expected_container, L"opus");
     }
 
-    wcscpy(result->warning, L"Doğrudan dosyanın kodek bilgisi yok; ses çıkarma/dönüştürme için ffmpeg gerekir.");
+    wcscpy(result->warning, L"The direct file has no codec info; ffmpeg is required for audio extraction/conversion.");
     _snwprintf(result->reason, 255,
-        L"Doğrudan dosyadan ses çıkarılıp .%ls biçiminde kaydedilecek.",
+        L"Extracting audio from the direct file and saving it as .%ls.",
         result->expected_container);
     return 1;
 }
@@ -303,7 +303,7 @@ static int select_audio_mode(
         if (direct_idx >= 0) {
             return fill_direct_audio(&formats[direct_idx], pref, result);
         }
-        wcscpy(result->reason, L"Bu bağlantıda ses akışı bulunamadı.");
+        wcscpy(result->reason, L"No audio stream found for this link.");
         return 0;
     }
 
@@ -323,30 +323,30 @@ static int select_audio_mode(
         wcscpy(result->expected_container, L"opus");
         if (strcmp(best_norm_ac, "opus") == 0) {
             result->needs_reencode = 0;
-            wcscpy(result->reason, L"Kaynağın sunduğu en yüksek kaliteli ham Opus akışı doğrudan kaydediliyor.");
+            wcscpy(result->reason, L"Saving the source's highest-quality raw Opus stream directly.");
         } else {
             result->needs_reencode = 1;
-            _snwprintf(result->warning, 255, L"Kaynakta saf Opus yok (%hs mevcut). Opus'a dönüştürülecek.", best_norm_ac);
-            _snwprintf(result->reason, 255, L"Mevcut %hs akışı Opus'a dönüştürülüyor.", best_norm_ac);
+            _snwprintf(result->warning, 255, L"No pure Opus in the source (%hs available). Converting to Opus.", best_norm_ac);
+            _snwprintf(result->reason, 255, L"Converting the available %hs stream to Opus.", best_norm_ac);
         }
     } else if (strcmp(pref, "aac") == 0) {
         wcscpy(result->expected_container, L"m4a");
         if (strcmp(best_norm_ac, "aac") == 0) {
             result->needs_reencode = 0;
-            wcscpy(result->reason, L"Kaynağın yerel AAC akışı m4a konteynerinde remux edilerek kaydediliyor.");
+            wcscpy(result->reason, L"Remuxing the source's native AAC stream into an m4a container.");
         } else {
             result->needs_reencode = 1;
-            _snwprintf(result->warning, 255, L"Kaynakta saf AAC yok (%hs mevcut). AAC'ye dönüştürülecek.", best_norm_ac);
-            _snwprintf(result->reason, 255, L"Mevcut %hs akışı AAC'ye dönüştürülüyor.", best_norm_ac);
+            _snwprintf(result->warning, 255, L"No pure AAC in the source (%hs available). Converting to AAC.", best_norm_ac);
+            _snwprintf(result->reason, 255, L"Converting the available %hs stream to AAC.", best_norm_ac);
         }
     } else { /* mp3 */
         wcscpy(result->expected_container, L"mp3");
         if (strcmp(best_norm_ac, "mp3") == 0) {
             result->needs_reencode = 0;
-            wcscpy(result->reason, L"Kaynağın ham MP3 akışı kopyalanıyor.");
+            wcscpy(result->reason, L"Copying the source's raw MP3 stream.");
         } else {
             result->needs_reencode = 1;
-            _snwprintf(result->reason, 255, L"%hs akışı evrensel MP3 formatına dönüştürülüyor.", best_norm_ac);
+            _snwprintf(result->reason, 255, L"Converting the %hs stream to universal MP3.", best_norm_ac);
         }
     }
 
@@ -452,9 +452,9 @@ static int select_video_mode(
         }
         if (has_audio_candidate) {
             wcscpy(result->reason,
-                L"Bu bağlantı yalnızca ses içeriyor. 'Yalnızca Ses (Müzik)' seçeneğini kullanın.");
+                L"This link contains audio only. Use the 'Audio Only' option.");
         } else {
-            wcscpy(result->reason, L"Bu bağlantıda indirilebilecek bir video akışı bulunamadı.");
+            wcscpy(result->reason, L"No downloadable video stream was found for this link.");
         }
         return 0;
     }
@@ -484,15 +484,15 @@ static int select_video_mode(
             wcscpy(result->expected_container, L"mp4");
             if ((strcmp(best_norm_vc, "h264") == 0 || strcmp(best_norm_vc, "hevc") == 0) && strcmp(norm_ac, "aac") == 0) {
                 result->needs_reencode = 0;
-                wcscpy(result->reason, L"Birleşik akış remux (stream copy) ile MP4 konteynerine aktarılıyor.");
+                wcscpy(result->reason, L"Remuxing the combined stream (stream copy) into an MP4 container.");
             } else {
                 result->needs_reencode = 1;
-                _snwprintf(result->warning, 255, L"Kaynak akış (%hs/%hs) MP4 uyumluluğu için dönüştürülecektir.", best_norm_vc, norm_ac);
-                wcscpy(result->reason, L"Birleşik akış MP4 gereksinimi nedeniyle dönüştürülüyor.");
+                _snwprintf(result->warning, 255, L"The source stream (%hs/%hs) will be converted for MP4 compatibility.", best_norm_vc, norm_ac);
+                wcscpy(result->reason, L"Converting the combined stream to satisfy the MP4 requirement.");
             }
         } else {
             ascii_to_wide(best_vid->ext[0] ? best_vid->ext : "mp4", result->expected_container, 15);
-            _snwprintf(result->reason, 255, L"Platform tek birleşik akış sundu (%hs + %hs). Doğrudan stream copy yapılıyor.", best_norm_vc, norm_ac);
+            _snwprintf(result->reason, 255, L"The platform provided a single combined stream (%hs + %hs). Copying it directly.", best_norm_vc, norm_ac);
         }
         return 1;
     }
@@ -542,27 +542,27 @@ static int select_video_mode(
         wcscpy(result->expected_container, L"mp4");
         if (strcmp(best_norm_vc, "vp9") == 0) {
             result->needs_reencode = 1;
-            wcscpy(result->warning, L"Kaynakta bu çözünürlükte VP9 kodeği var. MP4 için H.264 dönüştürmesi yapılacaktır.");
-            wcscpy(result->reason, L"Kullanıcı MP4 seçti; VP9 akışı H.264'e dönüştürülüp AAC ses ile birleştirilecek.");
+            wcscpy(result->warning, L"The source has VP9 at this resolution. MP4 requires an H.264 conversion.");
+            wcscpy(result->reason, L"The user selected MP4; the VP9 stream will be converted to H.264 and merged with AAC audio.");
         } else if (strcmp(best_norm_ac, "opus") == 0) {
             result->needs_reencode = 1;
             result->audio_only_reencode = 1;
-            wcscpy(result->warning, L"Opus ses akışı MP4 ile uyumlu olmadığından AAC'ye dönüştürülecektir (video akışı kopyalanır).");
-            _snwprintf(result->reason, 255, L"%hs video kopyalanıyor, Opus ses AAC'ye dönüştürülüp MP4 yapılıyor.", best_norm_vc);
+            wcscpy(result->warning, L"The Opus audio stream is not MP4-compatible, so it will be converted to AAC (the video is copied).");
+            _snwprintf(result->reason, 255, L"Copying the %hs video, converting Opus audio to AAC and producing MP4.", best_norm_vc);
         } else {
             result->needs_reencode = 0;
-            _snwprintf(result->reason, 255, L"%hs video ve %hs ses MP4 içinde remux (stream copy) ediliyor.", best_norm_vc, best_norm_ac);
+            _snwprintf(result->reason, 255, L"Remuxing the %hs video and %hs audio into MP4 (stream copy).", best_norm_vc, best_norm_ac);
         }
     } else {
         if ((strcmp(best_norm_vc, "vp9") == 0 || strcmp(best_norm_vc, "av1") == 0) && strcmp(best_norm_ac, "opus") == 0) {
             wcscpy(result->expected_container, L"webm");
-            _snwprintf(result->reason, 255, L"Kaynağın doğal akışları (%hs + OPUS) webm içinde sıfır re-encode ile birleştiriliyor.", best_norm_vc);
+            _snwprintf(result->reason, 255, L"Merging the source's natural streams (%hs + OPUS) into webm with zero re-encoding.", best_norm_vc);
         } else if ((strcmp(best_norm_vc, "h264") == 0 || strcmp(best_norm_vc, "hevc") == 0) && strcmp(best_norm_ac, "aac") == 0) {
             wcscpy(result->expected_container, L"mp4");
-            _snwprintf(result->reason, 255, L"Kaynağın doğal akışları (%hs + AAC) mp4 içinde sıfır re-encode ile birleştiriliyor.", best_norm_vc);
+            _snwprintf(result->reason, 255, L"Merging the source's natural streams (%hs + AAC) into mp4 with zero re-encoding.", best_norm_vc);
         } else {
             wcscpy(result->expected_container, L"mkv");
-            _snwprintf(result->reason, 255, L"Farklı kodekler (%hs + %hs) en uyumlu mkv konteynerinde kayıpsız remux ediliyor.", best_norm_vc, best_norm_ac);
+            _snwprintf(result->reason, 255, L"Losslessly remuxing the mixed codecs (%hs + %hs) into the most compatible mkv container.", best_norm_vc, best_norm_ac);
         }
     }
 

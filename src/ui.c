@@ -81,7 +81,7 @@ static HWND g_hBtnChooseFolder = NULL;
 static HWND g_hBtnMin = NULL;
 static HWND g_hBtnClose = NULL;
 
-/* Game Boy arayüz durumu (yerel radio/checkbox/combobox yerine) */
+/* Game Boy UI state (instead of native radio/checkbox/combobox) */
 static int g_mode_audio = 0;
 static int g_force_mp4 = 0;
 static int g_res_sel = 0;
@@ -98,7 +98,7 @@ static RECT g_rc_panel_download;
 static RECT g_rc_progress;
 static RECT g_rc_edit;
 
-/* Owner-draw butonların hover durumu */
+/* Hover state of owner-draw buttons */
 #define GB_MAX_TRACKED 16
 typedef struct {
     HWND hwnd;
@@ -109,7 +109,7 @@ typedef struct {
 static GbTrackedButton g_tracked[GB_MAX_TRACKED];
 static int g_tracked_count = 0;
 
-/* URL kutusunun özel imleci ve seçim rengi */
+/* Custom caret and selection color for the URL box */
 #define EDIT_CARET_TIMER 7
 static int g_edit_focused = 0;
 static int g_edit_caret_visible = 1;
@@ -211,8 +211,8 @@ static int S(int value)
 }
 
 /* ------------------------------------------------------------------
-   Owner-draw butonlarda fare üstünde olma durumu.
-   GDI'nin DRAWITEMSTRUCT'ı hover bilmediği için kendi takibimizi yapıyoruz.
+   Hover state for owner-draw buttons.
+   GDI's DRAWITEMSTRUCT has no hover info, so we track it ourselves.
    ------------------------------------------------------------------ */
 static GbTrackedButton *tracked_find(HWND hwnd)
 {
@@ -267,7 +267,7 @@ static int tracked_hover(HWND hwnd)
     return t ? t->hover : 0;
 }
 
-/* Panel zemin fırçası (static/edit denetimlerinin arka planı) */
+/* Panel background brush (background of static/edit controls) */
 static HBRUSH panel_brush(void)
 {
     static HBRUSH brush = NULL;
@@ -276,13 +276,13 @@ static HBRUSH panel_brush(void)
 }
 
 /* ------------------------------------------------------------------
-   Açılır listelerin içeriği
+   Contents of the dropdown lists
    ------------------------------------------------------------------ */
 static void fill_res_items(void)
 {
     int i;
     g_res_count = 0;
-    wcsncpy(g_res_items[g_res_count], L"EN YÜKSEK KALİTE", 95);
+    wcsncpy(g_res_items[g_res_count], L"BEST QUALITY", 95);
     g_res_items[g_res_count][95] = L'\0';
     g_res_count++;
 
@@ -303,16 +303,16 @@ static void fill_res_items(void)
 static void fill_aud_items(void)
 {
     g_aud_count = 0;
-    wcsncpy(g_aud_items[g_aud_count], L"OPUS  EN YÜKSEK KALİTE", 95);
+    wcsncpy(g_aud_items[g_aud_count], L"OPUS  BEST QUALITY", 95);
     g_aud_items[g_aud_count][95] = L'\0';
     g_aud_count++;
 
-    wcsncpy(g_aud_items[g_aud_count], L"AAC  M4A  APPLE UYUMLU", 95);
+    wcsncpy(g_aud_items[g_aud_count], L"AAC  M4A  APPLE COMPATIBLE", 95);
     g_aud_items[g_aud_count][95] = L'\0';
     g_aud_count++;
 
     if (g_mp3_available) {
-        wcsncpy(g_aud_items[g_aud_count], L"MP3  EVRENSEL FORMAT", 95);
+        wcsncpy(g_aud_items[g_aud_count], L"MP3  UNIVERSAL FORMAT", 95);
         g_aud_items[g_aud_count][95] = L'\0';
         g_aud_count++;
     }
@@ -365,7 +365,7 @@ static void open_aud_dropdown(void)
     gb_dropdown_open(g_hWnd, &anchor, ptrs, g_aud_count, g_aud_sel, on_aud_picked, NULL);
 }
 
-/* Açılır butonun üzerindeki metni günceller. */
+/* Updates the text shown on the dropdown button. */
 static void refresh_dropdown_labels(void)
 {
     if (g_res_count > 0 && g_res_sel >= 0 && g_res_sel < g_res_count) {
@@ -442,7 +442,7 @@ static void choose_folder_com(HWND hWnd)
         if (SUCCEEDED(pfd->lpVtbl->GetOptions(pfd, &dwOptions))) {
             pfd->lpVtbl->SetOptions(pfd, dwOptions | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
         }
-        pfd->lpVtbl->SetTitle(pfd, L"İndirme Klasörünü Seçin");
+        pfd->lpVtbl->SetTitle(pfd, L"Choose Download Folder");
 
         if (SUCCEEDED(pfd->lpVtbl->Show(pfd, hWnd))) {
             IShellItem *psi = NULL;
@@ -540,7 +540,7 @@ static void save_tray_hint_shown(void)
     }
 }
 
-/* X'e basınca uygulama kapanmaz; Steam/WhatsApp gibi tepsiye gizlenir. */
+/* Clicking X does not quit; the app hides to the tray like Steam/WhatsApp. */
 static void hide_to_tray(HWND hWnd)
 {
     ShowWindow(hWnd, SW_HIDE);
@@ -548,9 +548,9 @@ static void hide_to_tray(HWND hWnd)
     if (!g_tray_hint_shown) {
         g_tray_hint_shown = 1;
         save_tray_hint_shown();
-        tray_balloon(L"Arka planda çalışıyor",
-                     L"Tamamen kapatmak için tepsi simgesine sağ tıklayıp "
-                     L"\"Çıkış\" seçeneğini kullanın.");
+        tray_balloon(L"Running in the background",
+                     L"To quit completely, right-click the tray icon and "
+                     L"choose \"Quit\".");
     }
 }
 
@@ -575,8 +575,8 @@ static void create_fonts(void)
 {
     destroy_fonts();
 
-    /* 8-bit hissi: Consolas + anti-aliasing kapalı. Türkçe karakterler
-       Consolas'ta tamdır; harici font dosyası taşımaya gerek yok. */
+    /* 8-bit feel: Consolas + anti-aliasing off. Accented characters
+       are complete in Consolas; no external font file is needed. */
     g_fontTitle = CreateFontW(-S(20), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
     g_fontBold = CreateFontW(-S(14), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -627,7 +627,7 @@ static void layout_controls(void)
     int content_w = cw - S(64);
     if (content_w < S(200)) content_w = S(200);
 
-    /* Grup 1: bağlantı */
+    /* Group 1: link */
     SetWindowPos(g_hGrpUrl, NULL, x20, S(45), inner_w, S(65), SWP_NOZORDER);
     SetRect(&g_rc_panel_url, x20, S(45), x20 + inner_w, S(45) + S(65));
 
@@ -680,7 +680,7 @@ static void layout_controls(void)
     SetWindowPos(g_hBtnCancel, NULL, S(160), btn_y, S(90), btn_h, SWP_NOZORDER);
     SetWindowPos(g_hBtnOpenLocation, NULL, open_x, btn_y, open_w, btn_h, SWP_NOZORDER);
 
-    /* Başlık çubuğu düğmeleri */
+    /* Title bar buttons */
     {
         int close_w = S(26);
         int close_h = S(24);
@@ -690,7 +690,7 @@ static void layout_controls(void)
         SetWindowPos(g_hBtnMin, NULL, min_x, S(9), close_w, close_h, SWP_NOZORDER);
     }
 
-    /* Pencere köşeleri: DPI değişiminde yarıçap yeniden uygulanır. */
+    /* Window corners: radius is reapplied when DPI changes. */
     gb_round_window(g_hWnd, 1);
 
     InvalidateRect(g_hWnd, NULL, TRUE);
@@ -789,8 +789,8 @@ static void trigger_autofetch(const wchar_t *url)
 }
 
 /* ------------------------------------------------------------------
-   URL kutusu: özel imleç ve GB renkli metin seçimi
-   Yerel EDIT denetimi metin düzenlemeyi yapar; görsel katmanı biz çizeriz.
+   URL box: custom caret and GB-colored text selection
+   The native EDIT control handles editing; we draw the visual layer.
    ------------------------------------------------------------------ */
 static int edit_char_pos(HWND hWnd, int index, int *x, int *y)
 {
@@ -838,9 +838,9 @@ static void edit_paint(HWND hWnd)
     if (!dc) return;
     GetClientRect(hWnd, &rc);
 
-    /* Odak bayrağı WM_SETFOCUS/KILLFOCUS ile her zaman güncel kalmayabilir.
-       GetGUIThreadInfo, pencere önplanda değilken de gerçek odak penceresini
-       verir; g_app_active ise uygulamanın aktif olup olmadığını söyler. */
+    /* The focus flag may not always stay current via WM_SETFOCUS/KILLFOCUS.
+       GetGUIThreadInfo returns the real focus window even when the window is
+       not foreground; g_app_active tells whether the app itself is active. */
     focused = 0;
     if (g_app_active) {
         GUITHREADINFO gti;
@@ -858,7 +858,7 @@ static void edit_paint(HWND hWnd)
         else KillTimer(hWnd, EDIT_CARET_TIMER);
     }
 
-    /* Arka planı baştan biz çiziyoruz; yerel EDIT'in mavi seçimi hiç görünmez. */
+    /* We draw the background ourselves; the native EDIT blue selection never shows. */
     gb_fill(dc, &rc, GB_LIGHTEST);
 
     font = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0);
@@ -1016,8 +1016,8 @@ static LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
     return CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
 }
 
-/* Kullanıcı URL'yi başında/sonunda boşlukla yapıştırırsa yt-dlp başarısız
-   oluyordu; doğrulamadan ve motora vermeden önce temizle. */
+/* If the user pastes a URL with leading/trailing spaces, yt-dlp failed
+   before; trim it before validation and before handing it to the engine. */
 static void trim_ws(wchar_t *s)
 {
     if (!s) return;
@@ -1039,22 +1039,22 @@ static void trigger_fetch(void)
     GetWindowTextW(g_hEditUrl, url, 1023);
     trim_ws(url);
     if (!is_valid_url(url)) {
-        gb_message_box(g_hWnd, L"GEÇERSİZ BAĞLANTI",
-            L"Lütfen geçerli bir video veya ses bağlantısı girin.",
+        gb_message_box(g_hWnd, L"INVALID LINK",
+            L"Please enter a valid video or audio link.",
             MB_OK | MB_ICONWARNING);
         return;
     }
 
-    /* Motor meşgulse (ön-çekim, indirme ya da toast fetch sürüyorsa) HİÇBİR
-       durum değişmeden geri dön: mevcut medya bilgisi silinmesin, UI
-       "sorgulanıyor" takılı kalmasın ve otomatik-indirme bayrağı asılı kalmasın. */
+    /* If the engine is busy (pre-fetch, download or toast fetch running), return
+       without changing ANY state: do not clear the current media info, do not let
+       the UI stay stuck on "querying", and do not leave the auto-download flag hanging. */
     if (g_is_fetching || engine_is_busy()) {
         g_auto_download_after_fetch = 0;
-        SetWindowTextW(g_hStaticStatus, L"Motor şu an meşgul, lütfen bekleyin.");
+        SetWindowTextW(g_hStaticStatus, L"The engine is busy, please wait.");
         return;
     }
 
-    /* Zaten bu URL çekilmiş ve hazırsa tekrar gereksiz ağ trafiği yapma */
+    /* If this URL is already fetched and ready, avoid unnecessary network traffic */
     if (g_has_meta && wcscmp(url, g_last_fetched_url) == 0) {
         return;
     }
@@ -1066,20 +1066,20 @@ static void trigger_fetch(void)
     wcsncpy(g_last_fetched_url, url, 1023);
     g_last_fetched_url[1023] = L'\0';
 
-    SetWindowTextW(g_hBtnFetch, L"Çekiliyor...");
+    SetWindowTextW(g_hBtnFetch, L"Fetching...");
     EnableWindow(g_hBtnFetch, FALSE);
     EnableWindow(g_hBtnCancel, TRUE);
-    SetWindowTextW(g_hStaticTitle, L"Medya bilgileri sorgulanıyor, lütfen bekleyin...");
+    SetWindowTextW(g_hStaticTitle, L"Fetching media info, please wait...");
     SetWindowTextW(g_hStaticMeta, L"");
     SetWindowTextW(g_hStaticReason, L"");
-    SetWindowTextW(g_hStaticStatus, L"Bilgi getiriliyor...");
+    SetWindowTextW(g_hStaticStatus, L"Fetching info...");
 
     if (!engine_fetch_info_async(url, on_fetch_callback, NULL)) {
         g_is_fetching = 0;
         g_auto_download_after_fetch = 0;
         EnableWindow(g_hBtnFetch, TRUE);
-        SetWindowTextW(g_hBtnFetch, L"Bilgi Getir");
-        SetWindowTextW(g_hStaticStatus, L"Motor şu an meşgul, lütfen bekleyin.");
+        SetWindowTextW(g_hBtnFetch, L"Fetch Info");
+        SetWindowTextW(g_hStaticStatus, L"The engine is busy, please wait.");
     }
 }
 
@@ -1087,8 +1087,8 @@ static void update_format_selection(void)
 {
     int is_video = !g_mode_audio;
 
-    /* Görünürlüğü her durumda güncelle: medya yokken sekme değiştirilirse
-       çözünürlük/ses kutuları yine doğru takas edilmeli. */
+    /* Always update visibility: if the tab changes before media loads,
+       the resolution/audio boxes must still be swapped correctly. */
     if (is_video) {
         ShowWindow(g_hComboRes, SW_SHOW);
         ShowWindow(g_hChkForceMp4, SW_SHOW);
@@ -1134,7 +1134,7 @@ static void update_format_selection(void)
         if (g_current_selection.reason[0] != L'\0') {
             _snwprintf(msg, 512, L"[!] %ls", g_current_selection.reason);
         } else {
-            wcscpy(msg, L"[!] Bu bağlantı için uygun bir format bulunamadı.");
+            wcscpy(msg, L"[!] No suitable format found for this link.");
         }
         msg[511] = L'\0';
         SetWindowTextW(g_hStaticReason, msg);
@@ -1150,7 +1150,7 @@ static void update_format_selection(void)
     if (g_current_selection.warning[0] != L'\0') {
         _snwprintf(reason_text, 512, L"[!] %ls\n%ls", g_current_selection.warning, g_current_selection.reason);
     } else {
-        _snwprintf(reason_text, 512, L">> Hedef: .%ls | %ls", g_current_selection.expected_container, g_current_selection.reason);
+        _snwprintf(reason_text, 512, L">> Target: .%ls | %ls", g_current_selection.expected_container, g_current_selection.reason);
     }
     reason_text[511] = L'\0';
     SetWindowTextW(g_hStaticReason, reason_text);
@@ -1162,34 +1162,34 @@ static void trigger_download(void)
     GetWindowTextW(g_hEditUrl, url, 1023);
     trim_ws(url);
     if (!is_valid_url(url)) {
-        gb_message_box(g_hWnd, L"GEÇERSİZ BAĞLANTI",
-            L"Lütfen geçerli bir video veya ses bağlantısı girin.",
+        gb_message_box(g_hWnd, L"INVALID LINK",
+            L"Please enter a valid video or audio link.",
             MB_OK | MB_ICONWARNING);
         return;
     }
 
-    /* Zaten indirme sürüyorsa tekrar başlatma */
+    /* If a download is already running, do not start another */
     if (g_is_downloading) {
         return;
     }
 
-    /* Durum 1: Bilgi çekme işlemi zaten devam ediyorsa; indirme emrini kuyruğa al */
+    /* Case 1: info fetch is already running; queue the download command */
     if (g_is_fetching) {
         g_auto_download_after_fetch = 1;
         EnableWindow(g_hBtnDownload, FALSE);
         EnableWindow(g_hBtnCancel, TRUE);
-        SetWindowTextW(g_hStaticStatus, L"Bilgiler alınıyor, biter bitmez indirme otomatik başlayacak...");
+        SetWindowTextW(g_hStaticStatus, L"Fetching info; the download will start automatically when ready...");
         return;
     }
 
-    /* Durum 2: Henüz bilgi çekilmemişse; tek tıkla otomatik çekip indireceğiz */
+    /* Case 2: info not fetched yet; with one click, fetch it and then download */
     if (!g_has_meta || wcscmp(url, g_last_fetched_url) != 0) {
         g_auto_download_after_fetch = 1;
         trigger_fetch();
         return;
     }
 
-    /* Durum 3: Bilgiler hazır, doğrudan indirmeyi başlat */
+    /* Case 3: info ready, start the download directly */
     if (!g_selection_valid ||
         g_current_selection.format_id[0] == L'\0' ||
         g_current_selection.expected_container[0] == L'\0') {
@@ -1197,8 +1197,8 @@ static void trigger_download(void)
         if (!g_selection_valid) {
             const wchar_t *reason = g_current_selection.reason[0]
                 ? g_current_selection.reason
-                : L"Bu bağlantıdan indirilebilecek uygun bir akış bulunamadı.";
-            gb_message_box(g_hWnd, L"İNDİRİLEMİYOR", reason,
+                : L"No downloadable stream was found for this link.";
+            gb_message_box(g_hWnd, L"CANNOT DOWNLOAD", reason,
                 MB_OK | MB_ICONWARNING);
             return;
         }
@@ -1211,13 +1211,13 @@ static void trigger_download(void)
     EnableWindow(g_hBtnCancel, TRUE);
     g_progress = 0;
     InvalidateRect(g_hWnd, &g_rc_progress, FALSE);
-    SetWindowTextW(g_hStaticStatus, L"İndirme başlatılıyor...");
+    SetWindowTextW(g_hStaticStatus, L"Starting download...");
 
     if (!engine_download_async(url, &g_current_selection, g_download_dir, on_download_tick_callback, NULL)) {
         g_is_downloading = 0;
         EnableWindow(g_hBtnDownload, TRUE);
         EnableWindow(g_hBtnCancel, FALSE);
-        SetWindowTextW(g_hStaticStatus, L"Motor şu an meşgul, lütfen bekleyin.");
+        SetWindowTextW(g_hStaticStatus, L"The engine is busy, please wait.");
     }
 }
 
@@ -1250,7 +1250,7 @@ static void apply_toast_to_main(ToastState *state, int auto_start_download)
     SetWindowTextW(g_hStaticTitle, g_current_meta.title);
 
     wchar_t meta_info[256];
-    _snwprintf(meta_info, 256, L"Süre: %ls | Platform: %ls | Mevcut Akış: %d adet",
+    _snwprintf(meta_info, 256, L"Duration: %ls | Platform: %ls | Streams: %d",
         g_current_meta.duration_str,
         g_current_meta.platform.display_name,
         g_current_meta.format_count);
@@ -1266,7 +1266,7 @@ static void apply_toast_to_main(ToastState *state, int auto_start_download)
     if (auto_start_download) {
         trigger_download();
     } else {
-        SetWindowTextW(g_hStaticStatus, L"Medya hazır. İndirmek için 'İNDİR' butonuna basın.");
+        SetWindowTextW(g_hStaticStatus, L"Media ready. Press 'DOWNLOAD' to save it.");
         EnableWindow(g_hBtnDownload, g_selection_valid ? TRUE : FALSE);
     }
 }
@@ -1284,7 +1284,7 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             g_toast_state.font_btn = CreateFontW(-S(13), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_MODERN, L"Consolas");
 
-            /* 4 saniyelik otomatik kaybolma zamanlayıcısı */
+            /* 4-second auto-hide timer */
             SetTimer(hWnd, 1, 4000, NULL);
             return 0;
         }
@@ -1305,11 +1305,11 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             RECT rcClient;
             GetClientRect(hWnd, &rcClient);
 
-            /* Game Boy kartı */
+            /* Game Boy card */
             gb_fill(hdc, &rcClient, GB_LIGHTEST);
             gb_frame(hdc, &rcClient, GB_DARKEST, S(2));
 
-            /* Üst şerit */
+            /* Top strip */
             {
                 RECT bar = { S(2), S(2), rcClient.right - S(2), S(24) };
                 gb_fill(hdc, &bar, GB_DARKEST);
@@ -1327,7 +1327,7 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
 
-            /* Süre bilgisi */
+            /* Duration info */
             if (g_toast_state.meta.duration_str[0] != L'\0') {
                 RECT rcDuration = { S(96), S(4), S(176), S(22) };
                 gb_text(hdc, g_toast_state.font_small, GB_LIGHTEST, &rcDuration,
@@ -1345,7 +1345,7 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
 
-            /* 2. Video Başlığı */
+            /* 2. Video title */
             {
                 RECT rcTitle = { S(10), S(30), rcClient.right - S(108), S(66) };
                 gb_text(hdc, g_toast_state.font_title, GB_DARKEST, &rcTitle,
@@ -1353,21 +1353,21 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                         DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
             }
 
-            /* 3. Alt Açıklama */
+            /* 3. Subdescription */
             {
                 RECT rcSub = { S(10), S(70), rcClient.right - S(108), S(88) };
                 gb_text(hdc, g_toast_state.font_small, GB_DARK, &rcSub,
-                        L"İNDİRMEYE HAZIR - 4 SN SONRA KAPANIR",
+                        L"READY TO DOWNLOAD - CLOSES IN 4 S",
                         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
 
-            /* 4. İndir Butonu */
+            /* 4. Download button */
             {
                 RECT rcBtn = { rcClient.right - S(98), S(30), rcClient.right - S(10), S(66) };
                 g_toast_state.rc_btn = rcBtn;
                 gb_frame_round(hdc, &rcBtn, GB_DARKEST, S(2), GB_LIGHTEST,
                                g_toast_state.btn_hover ? GB_DARK : GB_DARKEST, 0);
-                gb_text(hdc, g_toast_state.font_btn, GB_LIGHTEST, &rcBtn, L"İNDİR",
+                gb_text(hdc, g_toast_state.font_btn, GB_LIGHTEST, &rcBtn, L"DOWNLOAD",
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
 
@@ -1395,8 +1395,8 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             tme.hwndTrack = hWnd;
             TrackMouseEvent(&tme);
 
-            /* Fare üstündeyken kapanmayı geciktir: her hareket sayacı sıfırlar,
-               fare durunca 4 sn sonra kapanır (hiç kapanmama riski yok). */
+            /* Delay closing while the mouse is over it: each move resets the timer,
+               and it closes 4 s after the mouse stops (no risk of never closing). */
             SetTimer(hWnd, 1, 4000, NULL);
             return 0;
         }
@@ -1410,7 +1410,7 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 g_toast_state.close_hover = 0;
                 InvalidateRect(hWnd, &g_toast_state.rc_close, FALSE);
             }
-            /* Fare ayrıldı: kısa bir süre sonra yine kapan. */
+            /* Mouse left: close again after a short delay. */
             SetTimer(hWnd, 1, 2500, NULL);
             return 0;
         }
@@ -1479,7 +1479,7 @@ static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wch
     RECT rcWork;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &rcWork, 0);
 
-    /* Boyut ve kenar boşlukları DPI ile ölçeklenir (ana pencere gibi). */
+    /* Size and margins scale with DPI (like the main window). */
     int toast_w = S(370);
     int toast_h = S(96);
     int toast_x = rcWork.right - toast_w - S(20);
@@ -1488,7 +1488,7 @@ static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wch
     g_hToastWnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         toastClass,
-        L"ff-dlp-viewer Bildirim",
+        L"ff-dlp-viewer Notification",
         WS_POPUP,
         toast_x, toast_y, toast_w, toast_h,
         NULL, NULL, hInst, NULL
@@ -1546,14 +1546,14 @@ static void show_tray_menu(HWND hWnd)
     POINT pt;
     GetCursorPos(&pt);
     HMENU hMenu = CreatePopupMenu();
-    AppendMenuW(hMenu, MF_STRING, ID_TRAY_RESTORE, L"Göster");
-    AppendMenuW(hMenu, MF_STRING, ID_TRAY_CHECK_UPDATE, L"Güncellemeleri Denetle (yt-dlp)");
+    AppendMenuW(hMenu, MF_STRING, ID_TRAY_RESTORE, L"Show");
+    AppendMenuW(hMenu, MF_STRING, ID_TRAY_CHECK_UPDATE, L"Check for Updates (yt-dlp)");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Çıkış");
+    AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Quit");
 
     SetForegroundWindow(hWnd);
     TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hWnd, NULL);
-    /* Menünün dışarı tıklamayla da güvenle kapanması için gerekli. */
+    /* Needed so the menu closes safely when clicking outside. */
     PostMessageW(hWnd, WM_NULL, 0, 0);
     DestroyMenu(hMenu);
 }
@@ -1565,8 +1565,8 @@ static void draw_panel(HDC hdc, const RECT *prc, const wchar_t *title)
 
     gb_frame_round(hdc, prc, GB_DARKEST, S(2), GB_DARK, GB_LIGHTEST, 1);
 
-    /* Panel başlığı: tam genişlik koyu şerit. Şeridin kare köşeleri panelin
-       2 px koyu çerçevesinin altında kaldığı için ayrıca kesmeye gerek yok. */
+    /* Panel header: full-width dark strip. The strip's square corners sit
+       under the panel's 2 px dark frame, so no extra clipping is needed. */
     tab.left = prc->left + S(2);
     tab.top = prc->top + S(2);
     tab.right = prc->right - S(2);
@@ -1605,8 +1605,8 @@ static void draw_progress(HDC hdc, const RECT *prc, int percent)
     if (block < 2) block = 2;
     if (gap < 1) gap = 1;
 
-    /* Boş kanalda bölme çizgileri: çubuk metin kutusu gibi değil,
-       ölçek gibi okunur. */
+    /* Divider lines in the empty channel: the bar reads like a scale,
+       not like a text box. */
     for (x = block + gap; x < inner_w; x += block + gap) {
         RECT s;
         s.left = inner.left + x - gap;
@@ -1639,14 +1639,14 @@ static void paint_main(HWND hWnd, HDC hdc)
 
     GetClientRect(hWnd, &rc);
 
-    /* Sayfa zemini + konsol çerçevesi. Zemin koyu ton: paneller öne çıksın. */
+    /* Page background + console frame. Dark background so panels stand out. */
     gb_fill(hdc, &rc, GB_DARK);
     gb_frame(hdc, &rc, GB_DARKEST, S(6));
     inner = rc;
     InflateRect(&inner, -S(6), -S(6));
     gb_frame(hdc, &inner, GB_LIGHTEST, S(1));
 
-    /* Başlık */
+    /* Header */
     icon_scale = S(2);
     if (icon_scale < 2) icon_scale = 2;
     gb_icon(hdc, S(22), S(14), icon_scale, 0);
@@ -1679,30 +1679,30 @@ static void paint_main(HWND hWnd, HDC hdc)
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
 
-    /* Başlık çubuğu ayırıcısı */
+    /* Title bar separator */
     {
         RECT divider = { S(12), S(43), rc.right - S(12), S(44) };
         gb_fill(hdc, &divider, GB_DARKEST);
     }
 
-    /* Bölüm panelleri */
-    draw_panel(hdc, &g_rc_panel_url, L"1  BAĞLANTI");
-    draw_panel(hdc, &g_rc_panel_media, L"2  MEDYA VE FORMAT");
-    draw_panel(hdc, &g_rc_panel_download, L"3  İNDİRME DURUMU");
+    /* Section panels */
+    draw_panel(hdc, &g_rc_panel_url, L"1  LINK");
+    draw_panel(hdc, &g_rc_panel_media, L"2  MEDIA & FORMAT");
+    draw_panel(hdc, &g_rc_panel_download, L"3  DOWNLOAD STATUS");
 
-    /* URL kutusunun kendi çerçevesi */
+    /* The URL box's own frame */
     edit_frame = g_rc_edit;
     InflateRect(&edit_frame, S(2), S(2));
     gb_frame_round(hdc, &edit_frame, GB_DARKEST, S(2), GB_LIGHTEST, GB_LIGHTEST, 1);
 
-    /* İlerleme çubuğu */
+    /* Progress bar */
     draw_progress(hdc, &g_rc_progress, g_progress);
 }
 
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (g_taskbar_created_msg != 0 && msg == g_taskbar_created_msg) {
-        /* Explorer yeniden başlarsa tepsi simgesini geri koy. */
+        /* Restore the tray icon if Explorer restarts. */
         init_tray(hWnd, (HINSTANCE)GetWindowLongPtrW(hWnd, GWLP_HINSTANCE));
         return 0;
     }
@@ -1721,7 +1721,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             HINSTANCE hInst = ((LPCREATESTRUCT)lParam)->hInstance;
 
             /* =========================================================
-               GROUP 1: URL & BAĞLANTI
+               GROUP 1: URL & LINK
                ========================================================= */
             g_hGrpUrl = CreateWindowExW(0, L"BUTTON", L"",
                 WS_CHILD | BS_GROUPBOX,
@@ -1738,12 +1738,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             /* Subclass edit box for auto-fetch on paste and Enter */
             g_oldEditProc = (WNDPROC)SetWindowLongPtrW(g_hEditUrl, GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
 
-            g_hBtnPaste = CreateWindowExW(0, L"BUTTON", L"Yapıştır",
+            g_hBtnPaste = CreateWindowExW(0, L"BUTTON", L"Paste",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 430, 67, 80, 27, hWnd, (HMENU)IDC_BTN_PASTE, hInst, NULL);
             SendMessageW(g_hBtnPaste, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hBtnFetch = CreateWindowExW(0, L"BUTTON", L"Bilgi Getir",
+            g_hBtnFetch = CreateWindowExW(0, L"BUTTON", L"Fetch Info",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 516, 67, 82, 27, hWnd, (HMENU)IDC_BTN_FETCH, hInst, NULL);
             SendMessageW(g_hBtnFetch, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
@@ -1756,42 +1756,42 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 20, 118, 590, 205, hWnd, (HMENU)IDC_GRP_MEDIA, hInst, NULL);
             SendMessageW(g_hGrpMedia, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hStaticTitle = CreateWindowExW(0, L"STATIC", L"Bağlantıyı girin veya yapıştırın.",
+            g_hStaticTitle = CreateWindowExW(0, L"STATIC", L"Enter or paste a link.",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS | SS_NOPREFIX,
                 32, 142, 565, 20, hWnd, (HMENU)IDC_STATIC_TITLE, hInst, NULL);
             SendMessageW(g_hStaticTitle, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
 
-            g_hStaticMeta = CreateWindowExW(0, L"STATIC", L"Desteklenenler: YouTube, TikTok, Instagram, X (Twitter), Web",
+            g_hStaticMeta = CreateWindowExW(0, L"STATIC", L"Supported: YouTube, TikTok, Instagram, X (Twitter), Web",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
                 32, 164, 565, 18, hWnd, (HMENU)IDC_STATIC_META, hInst, NULL);
             SendMessageW(g_hStaticMeta, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
-            g_hRadioVideo = CreateWindowExW(0, L"BUTTON", L"VİDEO",
+            g_hRadioVideo = CreateWindowExW(0, L"BUTTON", L"VIDEO",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | WS_GROUP,
                 32, 192, 150, 22, hWnd, (HMENU)IDC_RADIO_VIDEO, hInst, NULL);
             SendMessageW(g_hRadioVideo, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hRadioAudio = CreateWindowExW(0, L"BUTTON", L"SADECE SES",
+            g_hRadioAudio = CreateWindowExW(0, L"BUTTON", L"AUDIO ONLY",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 195, 192, 160, 22, hWnd, (HMENU)IDC_RADIO_AUDIO, hInst, NULL);
             SendMessageW(g_hRadioAudio, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hComboRes = CreateWindowExW(0, L"BUTTON", L"EN YÜKSEK KALİTE",
+            g_hComboRes = CreateWindowExW(0, L"BUTTON", L"BEST QUALITY",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 32, 222, 220, 26, hWnd, (HMENU)IDC_COMBO_RES, hInst, NULL);
             SendMessageW(g_hComboRes, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hChkForceMp4 = CreateWindowExW(0, L"BUTTON", L"MP4 OLARAK ZORLA",
+            g_hChkForceMp4 = CreateWindowExW(0, L"BUTTON", L"FORCE MP4",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 265, 223, 180, 24, hWnd, (HMENU)IDC_CHK_FORCE_MP4, hInst, NULL);
             SendMessageW(g_hChkForceMp4, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hComboAudio = CreateWindowExW(0, L"BUTTON", L"OPUS  EN YÜKSEK KALİTE",
+            g_hComboAudio = CreateWindowExW(0, L"BUTTON", L"OPUS  BEST QUALITY",
                 WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
                 32, 222, 220, 26, hWnd, (HMENU)IDC_COMBO_AUDIO, hInst, NULL);
             SendMessageW(g_hComboAudio, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
-            /* Paketlenen ffmpeg'de MP3 kodlayıcısı yoksa seçeneği hiç gösterme:
-               seçilip de indirme sonunda hata vermesi kullanıcıyı yanıltıyordu. */
+            /* If the bundled ffmpeg has no MP3 encoder, do not show the option at all:
+               selecting it and failing at the end of the download was misleading. */
             g_mp3_available = engine_ffmpeg_can_encode_mp3();
             fill_aud_items();
 
@@ -1800,7 +1800,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 32, 248, 565, 34, hWnd, (HMENU)IDC_STATIC_REASON, hInst, NULL);
             SendMessageW(g_hStaticReason, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
-            g_hBtnChooseFolder = CreateWindowExW(0, L"BUTTON", L"Konum Seç",
+            g_hBtnChooseFolder = CreateWindowExW(0, L"BUTTON", L"Choose Folder",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 32, 288, 110, 26, hWnd, (HMENU)IDC_BTN_CHOOSE_FOLDER, hInst, NULL);
             SendMessageW(g_hBtnChooseFolder, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
@@ -1811,35 +1811,35 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             SendMessageW(g_hStaticFolder, WM_SETFONT, (WPARAM)g_fontSmall, TRUE);
 
             /* =========================================================
-               GROUP 3: İNDİRME DURUMU & EYLEMLER
+               GROUP 3: DOWNLOAD STATUS & ACTIONS
                ========================================================= */
             g_hGrpDownload = CreateWindowExW(0, L"BUTTON", L"",
                 WS_CHILD | BS_GROUPBOX,
                 20, 338, 590, 130, hWnd, (HMENU)IDC_GRP_DOWNLOAD, hInst, NULL);
             SendMessageW(g_hGrpDownload, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hStaticStatus = CreateWindowExW(0, L"STATIC", L"Hazır",
+            g_hStaticStatus = CreateWindowExW(0, L"STATIC", L"Ready",
                 WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
                 32, 386, 565, 20, hWnd, (HMENU)IDC_STATIC_STATUS, hInst, NULL);
             SendMessageW(g_hStaticStatus, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hBtnDownload = CreateWindowExW(0, L"BUTTON", L"İNDİR",
+            g_hBtnDownload = CreateWindowExW(0, L"BUTTON", L"DOWNLOAD",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 32, 416, 120, 36, hWnd, (HMENU)IDC_BTN_DOWNLOAD, hInst, NULL);
             SendMessageW(g_hBtnDownload, WM_SETFONT, (WPARAM)g_fontBold, TRUE);
 
-            g_hBtnCancel = CreateWindowExW(0, L"BUTTON", L"İptal",
+            g_hBtnCancel = CreateWindowExW(0, L"BUTTON", L"Cancel",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | WS_DISABLED,
                 160, 416, 90, 36, hWnd, (HMENU)IDC_BTN_CANCEL, hInst, NULL);
             SendMessageW(g_hBtnCancel, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
 
-            g_hBtnOpenLocation = CreateWindowExW(0, L"BUTTON", L"Dosya Konumunu Aç",
+            g_hBtnOpenLocation = CreateWindowExW(0, L"BUTTON", L"Open File Location",
                 WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
                 438, 416, 170, 36, hWnd, (HMENU)IDC_BTN_OPEN_LOCATION, hInst, NULL);
             SendMessageW(g_hBtnOpenLocation, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
             ShowWindow(g_hBtnOpenLocation, SW_HIDE);
 
-            /* Kendi başlık çubuğumuzun düğmeleri */
+            /* Our own title bar buttons */
             g_hBtnMin = CreateWindowExW(0, L"BUTTON", L"",
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 0, 0, 26, 24, hWnd, (HMENU)IDC_BTN_MIN, hInst, NULL);
@@ -1905,8 +1905,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     wchar_t first_line[1024] = L"";
                     wchar_t found_url[1024] = L"";
                     int line_no = 0;
-                    /* .url kısayolu "[InternetShortcut]" ile başlar; gerçek adres
-                       "URL=" satırındadır. İlk 64 satırı tara, URL= bul. */
+                    /* A .url shortcut starts with "[InternetShortcut]"; the real address
+                       is on the "URL=" line. Scan the first 64 lines and find URL=. */
                     while (fgetws(line, 1023, f) && line_no < 64) {
                         line_no++;
                         wchar_t *nl = wcschr(line, L'\n');
@@ -2077,8 +2077,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     if (hData) {
                         wchar_t *pText = (wchar_t*)GlobalLock(hData);
                         if (pText) {
-                            /* GlobalUnlock'tan SONRA bu belleğe dokunmak
-                               use-after-unlock olur; kontrolü önce yap. */
+                            /* Touching this memory AFTER GlobalUnlock
+                               is use-after-unlock; do the check first. */
                             int valid = is_valid_url(pText);
                             SetWindowTextW(g_hEditUrl, pText);
                             GlobalUnlock(hData);
@@ -2096,7 +2096,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             } else if (wmId == IDC_BTN_CANCEL) {
                 engine_cancel();
                 g_auto_download_after_fetch = 0;
-                SetWindowTextW(g_hStaticStatus, L"İptal ediliyor...");
+                SetWindowTextW(g_hStaticStatus, L"Cancelling...");
             } else if (wmId == IDC_BTN_OPEN_LOCATION) {
                 if (g_last_downloaded_file[0] != L'\0' && file_exists(g_last_downloaded_file)) {
                     wchar_t arg[MAX_PATH + 32];
@@ -2138,8 +2138,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             } else if (wmId == ID_TRAY_EXIT) {
                 int can_exit = 1;
                 if (engine_is_busy()) {
-                    int res = gb_message_box(hWnd, L"ÇIKIŞ",
-                        L"İndirme işlemi devam ediyor.\nYine de çıkılsın mı?",
+                    int res = gb_message_box(hWnd, L"EXIT",
+                        L"A download is still in progress.\nQuit anyway?",
                         MB_YESNO | MB_ICONQUESTION);
                     can_exit = (res == IDYES);
                 }
@@ -2148,14 +2148,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     DestroyWindow(hWnd);
                 }
             } else if (wmId == IDOK) {
-                /* Enter: odak nerede olursa olsun indirmeyi başlat. */
+                /* Enter: start the download regardless of focus. */
                 trigger_download();
             } else if (wmId == IDCANCEL) {
-                /* Esc: süren işlemi iptal et, yoksa pencereyi kapat. */
+                /* Esc: cancel the running operation, otherwise close the window. */
                 if (engine_is_busy()) {
                     engine_cancel();
                     g_auto_download_after_fetch = 0;
-                    SetWindowTextW(g_hStaticStatus, L"İptal ediliyor...");
+                    SetWindowTextW(g_hStaticStatus, L"Cancelling...");
                 } else {
                     PostMessageW(hWnd, WM_CLOSE, 0, 0);
                 }
@@ -2169,7 +2169,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 
             g_is_fetching = 0;
             EnableWindow(g_hBtnFetch, TRUE);
-            SetWindowTextW(g_hBtnFetch, L"Bilgi Getir");
+            SetWindowTextW(g_hBtnFetch, L"Fetch Info");
 
             if (msg->success) {
                 g_current_meta = msg->meta;
@@ -2178,13 +2178,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 SetWindowTextW(g_hStaticTitle, g_current_meta.title);
 
                 wchar_t meta_info[256];
-                _snwprintf(meta_info, 256, L"Süre: %ls | Platform: %ls | Mevcut Akış: %d adet",
+                _snwprintf(meta_info, 256, L"Duration: %ls | Platform: %ls | Streams: %d",
                     g_current_meta.duration_str,
                     g_current_meta.platform.display_name,
                     g_current_meta.format_count);
                 SetWindowTextW(g_hStaticMeta, meta_info);
 
-                /* Çözünürlük listesini medya bilgisinden yeniden doldur */
+                /* Refill the resolution list from the media info */
                 g_res_sel = 0;
                 fill_res_items();
                 refresh_dropdown_labels();
@@ -2192,12 +2192,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 update_format_selection();
                 InvalidateRect(hWnd, NULL, TRUE);
 
-                /* Eğer kullanıcı indir butonuna basmış ve bilgi bekleniyorsa, şimdi indir */
+                /* If the user already pressed download and info was pending, download now */
                 if (g_auto_download_after_fetch) {
                     g_auto_download_after_fetch = 0;
                     trigger_download();
                 } else {
-                    SetWindowTextW(g_hStaticStatus, L"Medya hazır. İndirmek için 'İNDİR' butonuna basın.");
+                    SetWindowTextW(g_hStaticStatus, L"Media ready. Press 'DOWNLOAD' to save it.");
                     EnableWindow(g_hBtnDownload, g_selection_valid ? TRUE : FALSE);
                     EnableWindow(g_hBtnCancel, FALSE);
                 }
@@ -2207,15 +2207,15 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 g_auto_download_after_fetch = 0;
                 EnableWindow(g_hBtnDownload, FALSE);
                 EnableWindow(g_hBtnCancel, FALSE);
-                SetWindowTextW(g_hStaticTitle, L"Bilgi alınamadı.");
+                SetWindowTextW(g_hStaticTitle, L"Could not fetch info.");
                 SetWindowTextW(g_hStaticMeta, msg->error_msg);
                 if (wcscmp(msg->error_msg, ENGINE_MSG_CANCELLED) == 0) {
-                    /* İptal bir hata değil: kullanıcı zaten biliyor, dialog ile ürkütme. */
-                    SetWindowTextW(g_hStaticStatus, L"Bilgi çekme iptal edildi.");
+                    /* Cancel is not an error: the user knows, so do not scare them with a dialog. */
+                    SetWindowTextW(g_hStaticStatus, L"Info fetch cancelled.");
                 } else {
-                    SetWindowTextW(g_hStaticStatus, L"Hata oluştu.");
-                    gb_message_box(hWnd, L"HATA",
-                        msg->error_msg[0] ? msg->error_msg : L"Video bilgisi alınamadı.",
+                    SetWindowTextW(g_hStaticStatus, L"Something went wrong.");
+                    gb_message_box(hWnd, L"ERROR",
+                        msg->error_msg[0] ? msg->error_msg : L"Could not fetch video info.",
                         MB_OK | MB_ICONERROR);
                 }
             }
@@ -2238,14 +2238,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 wchar_t dl_str[64];
                 format_bytes_str(msg->downloaded, dl_str, 64);
 
-                /* yt-dlp toplam boyutu bilmiyorsa "NA" yazar; 0 bayt değil,
-                 "bilinmiyor" anlamına gelir. */
+                /* When yt-dlp does not know the total size it writes "NA"; this means
+                 "unknown", not 0 bytes. */
                 wchar_t tot_str[64];
                 if (msg->total > 0) format_bytes_str(msg->total, tot_str, 64);
                 else wcscpy(tot_str, L"??");
 
                 wchar_t status_line[256];
-                _snwprintf(status_line, 256, L"İndiriliyor: %.1f%% | Hız: %ls/s | Kalan: %02d:%02d | %ls / %ls",
+                _snwprintf(status_line, 256, L"Downloading: %.1f%% | Speed: %ls/s | Left: %02d:%02d | %ls / %ls",
                     msg->percent, speed_str, msg->eta / 60, msg->eta % 60, dl_str, tot_str);
                 SetWindowTextW(g_hStaticStatus, status_line);
 
@@ -2253,20 +2253,20 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 if (pct != g_last_tray_percent && pct >= 0 && pct <= 100) {
                     g_last_tray_percent = pct;
                     wchar_t tip[128];
-                    _snwprintf(tip, 128, L"ff-dlp-viewer - İndiriliyor: %d%%", pct);
+                    _snwprintf(tip, 128, L"ff-dlp-viewer - Downloading: %d%%", pct);
                     tray_set_tip(tip);
                 }
             } else if (wcscmp(msg->status, L"processing") == 0) {
                 g_progress = 100;
                 InvalidateRect(hWnd, &g_rc_progress, FALSE);
-                SetWindowTextW(g_hStaticStatus, L"Akışlar birleştiriliyor ve konteyner tamamlanıyor...");
-                tray_set_tip(L"ff-dlp-viewer - Birleştiriliyor...");
+                SetWindowTextW(g_hStaticStatus, L"Merging streams and finishing the container...");
+                tray_set_tip(L"ff-dlp-viewer - Merging...");
             } else if (wcscmp(msg->status, L"finished") == 0) {
                 g_is_downloading = 0;
                 g_last_tray_percent = -1;
                 g_progress = 100;
                 InvalidateRect(hWnd, &g_rc_progress, FALSE);
-                SetWindowTextW(g_hStaticStatus, L"[Tamamlandı] Dosya başarıyla kaydedildi.");
+                SetWindowTextW(g_hStaticStatus, L"[Done] File saved successfully.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
                 if (msg->filename[0] != L'\0') {
@@ -2277,26 +2277,26 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     ShowWindow(g_hBtnOpenLocation, SW_SHOW);
                     EnableWindow(g_hBtnOpenLocation, TRUE);
                 }
-                tray_set_tip(L"ff-dlp-viewer - Hazır");
-                tray_balloon(L"İndirme tamamlandı", L"Dosya seçilen klasöre kaydedildi.");
+                tray_set_tip(L"ff-dlp-viewer - Ready");
+                tray_balloon(L"Download complete", L"The file was saved to the selected folder.");
             } else if (wcscmp(msg->status, L"cancelled") == 0) {
                 g_is_downloading = 0;
                 g_last_tray_percent = -1;
-                SetWindowTextW(g_hStaticStatus, L"İndirme iptal edildi.");
+                SetWindowTextW(g_hStaticStatus, L"Download cancelled.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
                 if (g_hBtnOpenLocation) ShowWindow(g_hBtnOpenLocation, SW_HIDE);
-                tray_set_tip(L"ff-dlp-viewer - Hazır");
+                tray_set_tip(L"ff-dlp-viewer - Ready");
             } else if (wcscmp(msg->status, L"error") == 0) {
                 g_is_downloading = 0;
                 g_last_tray_percent = -1;
-                SetWindowTextW(g_hStaticStatus, msg->error_msg[0] ? msg->error_msg : L"İndirme hatası.");
+                SetWindowTextW(g_hStaticStatus, msg->error_msg[0] ? msg->error_msg : L"Download error.");
                 EnableWindow(g_hBtnDownload, TRUE);
                 EnableWindow(g_hBtnCancel, FALSE);
                 if (g_hBtnOpenLocation) ShowWindow(g_hBtnOpenLocation, SW_HIDE);
-                tray_set_tip(L"ff-dlp-viewer - Hata");
-                gb_message_box(hWnd, L"İNDİRME HATASI",
-                    msg->error_msg[0] ? msg->error_msg : L"İndirme sırasında bir hata oluştu.",
+                tray_set_tip(L"ff-dlp-viewer - Error");
+                gb_message_box(hWnd, L"DOWNLOAD ERROR",
+                    msg->error_msg[0] ? msg->error_msg : L"An error occurred during the download.",
                     MB_OK | MB_ICONERROR);
             }
 
@@ -2308,7 +2308,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU) {
                 show_tray_menu(hWnd);
             } else if (lParam == WM_LBUTTONUP || lParam == WM_LBUTTONDBLCLK) {
-                /* Tek sol tık da pencereyi geri getirsin (Python sürümdeki gibi). */
+                /* Let a single left click restore the window too (like the Python version). */
                 ShowWindow(hWnd, SW_RESTORE);
                 ShowWindow(hWnd, SW_SHOW);
                 SetForegroundWindow(hWnd);
@@ -2365,7 +2365,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             wcsncpy(g_last_clipboard_url, start, 1023);
             g_last_clipboard_url[1023] = L'\0';
 
-            /* Ana pencere zaten odakta ve bu link yüklü ise toast açma */
+            /* Do not open a toast if the main window is focused and this link is loaded */
             if (GetForegroundWindow() == hWnd && wcscmp(start, g_last_fetched_url) == 0) {
                 break;
             }
@@ -2450,17 +2450,17 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             ShowWindow(hWnd, SW_RESTORE);
             SetForegroundWindow(hWnd);
             SetWindowTextW(g_hEditUrl, url);
-            /* Motor meşgulse başlığı "bilgiler alınıyor" diye bırakma:
-               fetch hiç başlamayacağı için öyle asılı kalıyordu. */
+            /* If the engine is busy, do not leave the title as "fetching info":
+               fetch would never start, so it stayed stuck like that. */
             if (g_is_fetching || engine_is_busy()) {
                 g_auto_download_after_fetch = 0;
                 SetWindowTextW(g_hStaticStatus,
-                    L"Motor meşgul; işlem bitince 'Bilgi Getir' ile bu bağlantıyı çekebilirsiniz.");
+                    L"Engine busy; once it is done you can fetch this link with 'Fetch Info'.");
                 return TRUE;
             }
             g_has_meta = 0;
             g_selection_valid = 0;
-            SetWindowTextW(g_hStaticTitle, L"Bağlantı aktarıldı, bilgiler alınıyor...");
+            SetWindowTextW(g_hStaticTitle, L"Link transferred, fetching info...");
             trigger_fetch();
             return TRUE;
         }
@@ -2477,8 +2477,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
 
         case WM_CLOSE: {
-            /* Steam/WhatsApp davranışı: kapatma = tepsiye gizle.
-               Gerçek çıkış yalnızca tepsi menüsünden yapılır. */
+            /* Steam/WhatsApp behavior: close = hide to tray.
+               A real exit is only possible from the tray menu. */
             hide_to_tray(hWnd);
             return 0;
         }
