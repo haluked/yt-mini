@@ -1,48 +1,51 @@
-# ff-dlp-viewer-light: Ultra-Lightweight Native C Win32 Mimarisi (< 1 MB)
+# ff-dlp-viewer-light: Ultra-Lightweight Native C Win32 Architecture (< 1 MB)
 
-Bu dal (`light`), Python/PyInstaller çalışma zamanı şişkinliğini (bloat) tamamen ortadan kaldırmak ve uygulamayı **saf C (C11) / yerel Win32 API** ile yeniden inşa etmek amacıyla oluşturulmuştur.
+**English** · [Türkçe](LIGHT_ARCHITECTURE.tr.md)
 
----
-
-## 1. Mimari Prensipler ve Tasarım Kararları
-
-1. **Sıfır Ek Çalışma Zamanı (Zero Runtime Bundles):**
-   * PyInstaller, Electron, .NET veya Qt bağımlılıkları tamamen kaldırılmıştır.
-   * Yalnızca Windows işletim sisteminin yerel DLL kütüphaneleri dinamik bağlanır (`USER32.dll`, `GDI32.dll`, `COMCTL32.dll`, `SHELL32.dll`, `ole32.dll`, `msvcrt.dll`, `KERNEL32.dll`).
-   * Harici MinGW çalışma zamanları (`libgcc_s_seh`, `libwinpthread`) `-static` bayrağı ile engellenmiştir.
-
-2. **Dosya Boyutu ve Performans:**
-   * **Hedef:** < 1 MB (İdeal: 150 KB – 300 KB).
-   * **Gerçekleşen Boyut:** **~341 KB** (349.184 bayt).
-   * **Boşta RAM Ayak İzi:** < 10 MB (Python sürümündeki 60-70 MB'a kıyasla ~%85 tasarruf).
-   * **Açılış Süresi:** < 15 ms (neredeyse anında).
-
-3. **Modüler Çekirdek (Arayüzden Bağımsız C Katmanı):**
-   * `src/detector.c`: YouTube, TikTok, Instagram, X/Twitter ve Genel Web adreslerini tanıyan platform tespit motoru.
-   * `src/codec_selector.c`: Deterministik kodek/format matrisi (AV1 > VP9 > H.265 > H.264 ve Opus > AAC > MP3) ve stream copy / remux karar motoru.
-   * `src/sanitization.c`: Windows dosya adı kısıtlamaları (yasaklı karakterler, CON/PRN/AUX ayrılmış adları, path traversal engelleme, uzunluk sınırlaması).
-   * `src/cjson.c`: Tek dosyalık ultra-hafif JSON ayrıştırıcı (meta verileri ve format ağacını ayrıştırmak için).
-   * `src/engine.c`: Asenkron iş parçacığı (`CreateThread`), GUI'yi kilitlemeyen gizli boru hattı (`CreatePipe` / `ReadFile`), yüzde/hız/kalan süre ayrıştırıcısı ve iptal mekanizması.
-
-4. **Game Boy Esintili 8-bit Arayüz (`gb_ui.c` / `ui.c`):**
-   * Klasik DMG paleti: dört yeşil ton (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`); ara tonlar 1 px dama deseniyle.
-   * `BS_OWNERDRAW` butonlar, seçim çipleri, onay kutusu, özel açılır liste, segmentli ilerleme çubuğu, kendi başlık çubuğu ve modal mesaj kutusu.
-   * `Consolas` sistem fontu + `NONANTIALIASED_QUALITY`; harici font/görsel dosyası yok.
-   * Modern COM `IFileOpenDialog` (`FOS_PICKFOLDERS`) ile klasör seçimi.
-   * Sürükle & Bırak (`WM_DROPFILES`) desteği.
-   * Sistem tepsisi (`Shell_NotifyIconW`) entegrasyonu.
+This branch (`light`) exists to remove the Python/PyInstaller runtime bloat entirely and
+rebuild the app with **pure C (C11) / native Win32 API**.
 
 ---
 
-## 2. Derleme Komutu
+## 1. Architectural principles and design decisions
 
-MinGW-w64 GCC ile tek komutla derleme:
+1. **Zero Runtime Bundles:**
+   * PyInstaller, Electron, .NET and Qt dependencies are removed entirely.
+   * Only the Windows operating system's own DLLs are linked dynamically (`USER32.dll`, `GDI32.dll`, `COMCTL32.dll`, `SHELL32.dll`, `ole32.dll`, `msvcrt.dll`, `KERNEL32.dll`).
+   * External MinGW runtimes (`libgcc_s_seh`, `libwinpthread`) are excluded with the `-static` flag.
+
+2. **Binary size and performance:**
+   * **Target:** < 1 MB (ideal: 150 KB – 300 KB).
+   * **Achieved size:** **~345 KB** (352,768 bytes).
+   * **Idle RAM footprint:** < 15 MB (about 85% less than 60–70 MB in the Python version).
+   * **Startup time:** < 15 ms (almost instant).
+
+3. **Modular core (UI-independent C layer):**
+   * `src/detector.c`: platform detection engine that recognizes YouTube, TikTok, Instagram, X/Twitter and generic web addresses.
+   * `src/codec_selector.c`: deterministic codec/format matrix (AV1 > VP9 > H.265 > H.264 and Opus > AAC > MP3) and the stream copy / remux decision engine.
+   * `src/sanitization.c`: Windows file-name constraints (reserved characters, CON/PRN/AUX reserved names, path traversal prevention, length limits).
+   * `src/cjson.c`: single-file, ultra-light JSON parser (for parsing metadata and the format tree).
+   * `src/engine.c`: asynchronous worker thread (`CreateThread`), hidden pipes that never block the GUI (`CreatePipe` / `ReadFile`), percentage/speed/ETA parser and cancel mechanism.
+
+4. **Game Boy inspired 8-bit interface (`gb_ui.c` / `ui.c`):**
+   * Classic DMG palette: four shades of green (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`); intermediate tones use a 1 px dither.
+   * `BS_OWNERDRAW` buttons, choice chips, checkbox, custom dropdown, segmented progress bar, its own title bar and modal message box.
+   * `Consolas` system font + `NONANTIALIASED_QUALITY`; no external font/image files.
+   * Folder selection through the modern COM `IFileOpenDialog` (`FOS_PICKFOLDERS`).
+   * Drag & drop (`WM_DROPFILES`) support.
+   * System tray (`Shell_NotifyIconW`) integration.
+
+---
+
+## 2. Build command
+
+One-command build with MinGW-w64 GCC:
 
 ```cmd
 build.bat
 ```
 
-veya manuel olarak:
+Or manually:
 
 ```bash
 windres res\res.rc -O coff -o res.o
@@ -59,16 +62,16 @@ gcc -O3 -s -flto \
 
 ---
 
-## 3. Doğrulama ve Testler
+## 3. Verification and tests
 
-C çekirdek birim testlerini derleyip çalıştırmak için:
+To compile and run the C core unit tests:
 
 ```cmd
 gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c src/cjson.c tests/test_core.c -o tests/test_core.exe
 tests\test_core.exe
 ```
 
-Test çıktısı:
+Test output:
 ```
 ==========================================
 RUNNING FF-DLP-VIEWER LIGHT C UNIT TESTS
@@ -79,6 +82,8 @@ RUNNING FF-DLP-VIEWER LIGHT C UNIT TESTS
   -> Sanitization tests PASSED!
 [TEST] Codec Selector testing...
   -> Codec Selector tests PASSED!
+[TEST] cJSON testing...
+  -> cJSON tests PASSED!
 
 ALL CORE C TESTS PASSED WITH 100% SUCCESS!
 ```

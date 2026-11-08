@@ -1,35 +1,70 @@
-# Gelecek Planları ve Yol Haritası (TODO)
+# Future Plans and Roadmap (TODO)
 
-## 1. Pano Ön-Çekim Belleği ve Zaman Aşımı Yönetimi (Clipboard Fetch Memory Cache)
-- **Açıklama:** Kullanıcı YouTube bağlantısını kopyaladığında arka planda çekilen video/medya bilgileri hemen silinmeyip birkaç dakika (örn. 5-10 dakika) boyunca bellekte güvenli şekilde önbelleğe alınacak.
-- **Kullanım Senaryosu:**
-  - Kullanıcı 4 saniyelik açılır bildirim (toast popup) çıktığında meşgulse veya bildirime yetişemezse, video bilgileri kaybolmayacak.
-  - Kullanıcı daha sonra sistem tepsisindeki (tray) simgeye veya görev çubuğuna tıkladığında "Son Kopyalanan Medya: [Video Adı]" seçeneğini görecek ve tek tıkla indirmeye devam edebilecek.
-  - Süre dolduğunda veya yeni bir bağlantı kopyalandığında eski önbellek temizlenerek bellek sızıntısı önlenecek.
+**English** · [Türkçe](TODO.tr.md)
 
-## 2. Pano Otomatik-Çekimini Tüm Platformlara Genişletme ("Bu linki indirebilir miyiz?")
-- **Açıklama:** Şu anda panoya kopyalanan **yalnızca YouTube** bağlantıları otomatik sorgulanıyor ve toast bildirimi gösteriyor. İleride herhangi bir bağlantı kopyalandığında yt-dlp'a "bu linki indirebilir miyiz?" diye sorulabilir (desteklediği 1000+ site).
-- **Tasarım Notları:**
-  - Kopyalanan URL'nin platformu tespit edilemiyorsa (generic/web) sessizce denemeli; sonuç başarısızsa hiçbir bildirim göstermemeli (kullanıcıyı gereksiz toast ile rahatsız etmemek için).
-  - Toast rozeti şu an sabit "▶ YOUTUBE" yazıyor (`ui.c` WM_PAINT) — platform genişletilince rozet `meta.platform.badge_label`'dan dinamik alınmalı.
-  - Bing/Google arama sayfası bağlantıları gibi indirilemeyecek URL'ler için kısa bir " Kara liste" (örn. google.com, bing.com) düşünülebilir.
+## 1. Clipboard Fetch Memory Cache and Timeout
+- **Description:** When the user copies a YouTube link, the video/media info fetched in
+  the background is not discarded immediately; it is cached safely in memory for a few
+  minutes (e.g. 5–10 minutes).
+- **Use case:**
+  - If the user is busy when the 4-second toast appears, or misses it, the video info is
+    not lost.
+  - When the user later clicks the tray icon or taskbar button, they see
+    "Last Copied Media: [Video Name]" and can continue the download with one click.
+  - When the timeout expires or a new link is copied, the old cache is cleared to avoid
+    a memory leak.
 
-## 3. Pasif Güncelleme Denetimi (RAM dostu model)
-- **Açıklama:** Şu an tepsi menüsündeki "Güncellemeleri Denetle (yt-dlp)" **sürüm kontrolü yapmadan** her seferinde ~17-30 MB indiriyor. Hedef: uygulamanın açılışında + tray'de beklerken günde en fazla bir kez, tek HTTP isteğiyle (PyPI/GitHub API) sürüm karşılaştırması yapmak.
-- **Davranış:** Güncelleme varsa tray baloncuğu "Güncelleme var, tıkla" der; kullanıcı tıklarsa indirme başlar. Arka plan servisi / scheduled task YOK (sıfır ek RAM).
-- **Bağlı iş:** İndirilen yt-dlp/ffmpeg dosyalarının **SHA-256 doğrulaması** (GitHub Releases API `digest` alanı kullanılabilir) bu aşamada birlikte eklenmeli. Ayrıca güncelleme "uygulamanın kullandığı kopyayı" hedeflemeye devam etmeli (bkz. bootstrapper düzeltmesi).
+## 2. Extend Clipboard Auto-Fetch to All Platforms ("Can we download this link?")
+- **Description:** Today **only YouTube** links copied to the clipboard are auto-queried
+  and show a toast. In the future, any copied link could be passed to yt-dlp with the
+  question "can we download this?" (1000+ supported sites).
+- **Design notes:**
+  - If the copied URL's platform cannot be detected (generic/web), try silently and show
+    no notification when the result fails (avoid bothering the user with needless
+    toasts).
+  - The toast badge currently says a fixed "▶ YOUTUBE" (`ui.c` WM_PAINT) — once platforms
+    are extended, the badge should come from `meta.platform.badge_label`.
+  - A small blocklist (e.g. google.com, bing.com) could be considered for URLs that
+    cannot be downloaded, such as search pages.
 
-## 4. ffmpeg Dağıtım URL'i
-- **Açıklama:** `bootstrapper.c` içindeki FFMPEG_URL hâlâ **eski yt-mini deposunun** v2.0.0-beta release'ine bağlı. yt-mini-lite deposu açılıp ilk release yayınlandığında bu URL yeni depoya taşınmalı.
-- **Alternatif:** ffmpeg kaynağı olarak gyan.dev veya BtbN resmi yapıları + sabit SHA-256 (LGPL/GPL lisans notuyla). Karar: dağıtım mimarisi tartışmasında.
+## 3. Passive Update Check (RAM-friendly model)
+- **Description:** Today the tray menu's "Check for Updates (yt-dlp)" downloads ~17–30 MB
+  on every use **without checking the version first**. Target: compare versions at app
+  startup and at most once a day while idle in the tray, using a single HTTP request to
+  the PyPI/GitHub API.
+- **Behavior:** If an update exists, the tray balloon says "Update available, click to
+  install"; clicking starts the download. No background service or scheduled task (zero
+  extra RAM).
+- **Related work:** Add **SHA-256 verification** for downloaded yt-dlp/ffmpeg files at
+  this stage (the GitHub Releases API `digest` field can be used). The update must keep
+  targeting the copy the app actually uses (see the bootstrapper fix).
 
-## 5. Kurulum Stratejisi (Architecture — tartışılacak)
-- **Karar (şimdilik):** yt-dlp + ffmpeg **her zaman uygulama klasörüne** (app-dir\bin veya %LOCALAPPDATA%\Programs\...\bin) kurulur; sistem PATH'ine DOKUNULMAZ. Böylece uygulama hep "portable mantığıyla" çalışır, kaldırma tertemiz olur.
-- **İleride:** PATH'e ekleme, installer'da **opsiyonel bir onay kutusu** olarak düşünülebilir (gelişmiş kullanıcılar için). Windows registry/ortam değişkeni değişikliği geri alınabilir olmalı.
+## 4. ffmpeg Distribution URL
+- **Description:** `FFMPEG_URL` in `bootstrapper.c` still points to the old `yt-mini`
+  repository's v2.0.0-beta release. When the yt-mini-lite repository is opened and its
+  first release is published, this URL must move to the new repository.
+- **Alternative:** Use gyan.dev or BtbN official builds as the ffmpeg source with a
+  pinned SHA-256 (with the LGPL/GPL license note). Decision pending in the distribution
+  architecture discussion.
 
-## 6. Kimlik/Marka Düzeltmesi (yt-mini-lite geçişi)
-- Mutex (`Local\ff-dlp-viewer-light`), registry anahtarı (`HKCU\Software\ff-dlp-viewer`), pencere sınıfı ve başlıklar hâlâ **ff-dlp-viewer** adını taşıyor. yt-mini-lite deposuna geçişte tek seferde, hepsi birden güncellenmeli (yarım rebrand = iki isim karışır).
-- Not: pencere sınıfı adı değişirse `main.c`'teki `FindWindowW(UI_WINDOW_CLASS, ...)` ikinci örnek aktarımı otomatik olarak yeni adı kullanır — iki tarafı aynı commit'te değiştirmek yeterli.
+## 5. Installation Strategy (architecture — to be discussed)
+- **Decision (for now):** yt-dlp + ffmpeg are **always installed into the app's own
+  folder** (app-dir\bin or %LOCALAPPDATA%\Programs\...\bin); the system PATH is NEVER
+  touched. The app therefore always behaves "portable", and uninstalling is clean.
+- **Later:** adding to PATH could be offered as an **optional checkbox** in the installer
+  (for advanced users). Any registry/environment change must be reversible.
 
-## 7. Format Listesi Sınırı
-- MAX_FORMATS = 256 (bellek Challenge'ı gereği sabit). yt-dlp formatları kötüden iyiye sıraladığı için sınır aşılırsa artık **en iyiler korunarak** sondan alınıyor (bkz. engine.c parse_json_metadata). Nadir sitelerde 256'yı aşan listeler için ileride dinamik ayrım düşünülebilir; pratikte gerek yok.
+## 6. Identity/Brand Fix (yt-mini-lite transition)
+- The mutex (`Local\ff-dlp-viewer-light`), registry key
+  (`HKCU\Software\ff-dlp-viewer`), window class and titles still carry the
+  **ff-dlp-viewer** name. They must all be updated at once when moving to the
+  yt-mini-lite repository (a half-done rebrand mixes two names).
+- Note: if the window class name changes, `FindWindowW(UI_WINDOW_CLASS, ...)` in
+  `main.c` picks up the new name automatically for second-instance forwarding — changing
+  both sides in the same commit is enough.
+
+## 7. Format List Limit
+- MAX_FORMATS = 256 (fixed for memory reasons). Because yt-dlp lists formats from worst
+  to best, the limit now keeps the **best** ones by taking from the end (see
+  `parse_json_metadata` in engine.c). A dynamic split could be considered for rare sites
+  with more than 256 formats, but it is not needed in practice.

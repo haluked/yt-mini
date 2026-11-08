@@ -1,39 +1,44 @@
-# Yayın Öncesi Kontrol Listesi (Pre-Release Checklist)
+# Pre-Release Checklist
 
-ff-dlp-viewer GitHub'a veya son kullanıcılara yayınlanmadan önce doğrulanması gereken kontrol listesi:
+**English** · [Türkçe](RELEASE_CHECKLIST.tr.md)
 
-- [x] **Tasarım ve Arayüz Denetimi (Impeccable & Pixel Estetiği)**:
-  - Keskin köşeler (0 radius), 2px katı kenarlıklar uygulandı.
-  - Pastel renk paleti (`#F4F1EA`, `#7DBA84`, `#78A1BB`, `#E5B869`, `#DE7A68`) uygulandı.
-  - Gradient, blur, glow ve emoji içermeyen sade retro masaüstü dili korundu.
+Checklist to verify before ff-dlp-viewer is published on GitHub or shipped to end users:
 
-- [x] **Kod Kalitesi ve Birim Testleri**:
-  - `python -m pytest tests/` ile 44 birim testinin tamamı başarıyla geçiyor.
-  - YouTube 4K, 1080p, TikTok, Instagram ve X format JSON örnekleriyle saf kodek seçici test edildi.
-  - Dosya sanitization (Windows yasak karakterler, path traversal, MAX_PATH) doğrulandı.
+- [x] **Design and Interface Review (Game Boy 8-bit)**:
+  - Four-shade DMG palette (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`) applied; no color outside the palette.
+  - Pixel-stepped corners, 2 px hard frames/shadows; no gradients, blur, glow or anti-aliased corners.
+  - Every control is owner-drawn; the only native control is the URL `EDIT` box.
 
-- [x] **Bellek ve Performans Testi**:
-  - Windows Working Set bellek tüketimi ölçüldü.
-  - `yt_dlp` import'ları lazy hale getirildi.
-  - Sistem tepsisine küçültüldüğünde nesneler serbest bırakılıyor ve `SetProcessWorkingSetSize` ile bellek optimize ediliyor.
+- [x] **Code Quality and Unit Tests**:
+  - All C core tests pass with `tests\test_core.exe` (detector, sanitization, codec selector, cJSON).
+  - Force-MP4 behaviour is covered (direct copy, audio-only conversion, full re-encode).
+  - File sanitization (Windows reserved characters, path traversal, reserved names, MAX_PATH) is verified.
 
-- [x] **Sistem Tepsisi (Tray) Davranışı**:
-  - Pencere kapatıldığında (`WM_DELETE_WINDOW`) uygulama kapanmıyor, tray'de sessizce bekliyor.
-  - Çift/sol tık pencereyi öne getiriyor.
-  - İndirme sürerken çıkış istendiğinde kullanıcıdan açık onay isteniyor.
+- [x] **Size and Performance**:
+  - `build.bat` verifies the executable stays under 1 MB (current: ~345 KB).
+  - Idle RAM measured at ~10–15 MB.
+  - No external runtime: only native Windows system DLLs are linked.
 
-- [x] **Güvenlik ve İzolasyon**:
-  - Subprocess yerine doğrudan `yt_dlp` Python kütüphane API'si kullanılıyor.
-  - ffmpeg ikilisi bağımsız olarak uygulamanın kendi `bin/` klasörüne yerleşiyor, sistem `PATH` değiştirilmiyor.
-  - Windows Tekil Örnek (Named Mutex) ile çift kopya açılması engelleniyor.
+- [x] **Background and Tray Behaviour**:
+  - Closing the window hides it to the tray and keeps the app running.
+  - A one-time "running in the background" notice is shown on the first close.
+  - Quitting while a download is running asks for confirmation.
+  - A second launch forwards the URL to the existing window (`WM_COPYDATA`) instead of opening a new copy.
 
-- [x] **Kurulum ve Paketleme**:
-  - `installer/setup.iss` ile Inno Setup kurulum scripti hazırlandı (Türkçe dil, `%LOCALAPPDATA%` kurulumu, yönetici izni gerektirmeme).
-  - `installer/build.py` ve `build.bat` ile tek tıkla PyInstaller + Inno Setup derleme hattı hazırlandı.
-  - Geliştirici için `dev_setup.bat` ve `requirements.txt` hazırlandı.
+- [x] **Security and Isolation**:
+  - Processes are started with `CreateProcessW`; no shell command strings are assembled.
+  - URLs reject quotes, backslashes and control characters.
+  - yt-dlp/ffmpeg are installed in the app's own `bin/` folder; the system `PATH` is not modified.
+  - A Windows named mutex guarantees a single instance.
+  - A Job Object terminates the whole process tree on cancel.
 
-- [x] **Lisans Uyumluluğu**:
-  - `LICENSE` dosyası oluşturuldu: MIT Lisansı + yt-dlp (The Unlicense) ve FFmpeg (LGPL v2.1+) bağımsız binary kullanım şartları belirtildi.
+- [x] **Installation and Packaging**:
+  - `installer/setup.iss` provides an English Inno Setup installer (per-user `%LOCALAPPDATA%`, no admin rights).
+  - `build.bat` compiles the native executable with size verification.
+  - First-run bootstrapper downloads yt-dlp/ffmpeg when missing.
 
-- [ ] **Kullanıcı Onayı & GitHub Push**:
-  - Haluk tarafından onaylanana kadar GitHub'a hiçbir push işlemi yapılmayacaktır.
+- [x] **License Compliance**:
+  - `LICENSE` contains the MIT License plus the usage terms for yt-dlp (The Unlicense) and FFmpeg (LGPL v2.1+) as standalone binaries.
+
+- [ ] **User Approval & GitHub Push**:
+  - No push to GitHub happens until Haluk approves it.

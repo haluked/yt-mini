@@ -1,6 +1,8 @@
 # ff-dlp-viewer (v2.2 Native Light)
 
-> Windows için ultra hafif (< 1 MB), çalışma zamanı gerektirmeyen (sıfır Python/Electron), yerel Win32 GUI tabanlı video ve ses indirme aracı.
+**English** · [Türkçe](README.tr.md)
+
+> An ultra-light (< 1 MB), runtime-free (zero Python/Electron) video and audio downloader for Windows, built on a native Win32 GUI.
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
@@ -9,103 +11,103 @@
 
 ---
 
-## Genel Bakış
+## Overview
 
-**ff-dlp-viewer**, Python çalışma zamanı, PyInstaller veya Electron gibi ağır bağımlılıkları tamamen ortadan kaldırarak saf C11 ve yerel Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`) kullanılarak sıfırdan yeniden yazılmıştır.
+**ff-dlp-viewer** was rewritten from scratch in pure C11 using the native Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`), removing heavy dependencies such as the Python runtime, PyInstaller and Electron entirely.
 
-Nihai çalıştırılabilir dosya boyutu **yalnızca ~345 KB** olup, bellek tüketimi 10-15 MB civarındadır.
-
----
-
-## Öne Çıkan Özellikler
-
-- **Ultra Hafif ve Sıfır Runtime (< 1 MB)**:
-  - Harici DLL bağımlılığı yoktur; doğrudan Windows yerel sistem kütüphanelerine statik olarak bağlanır.
-  - Hızlı açılış, sıfır gecikme ve minimum kaynak kullanımı (RAM: ~12 MB).
-
-- **Game Boy Esintili 8-bit Arayüz**:
-  - Klasik DMG paleti: yalnızca 4 ton yeşil (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`).
-  - Tüm butonlar, seçim çipleri, onay kutusu, ilerleme çubuğu, açılır listeler, bildirim ve onay pencereleri özel çizilir; harici görsel veya font dosyası yoktur.
-  - Kendi başlık çubuğu (sürükle / küçült / kapat), keskin köşeler, 2 px sert gölgeler. Gradient, blur ve parlama yoktur.
-  - Sistem fontu `Consolas`, anti-aliasing kapalı; Türkçe karakterler tam desteklenir.
-  - Sabit 646×485 tasarım, Per-Monitor V2 DPI ile ölçeklenir.
-
-- **Tek Tıkla Otomatik İndirme (Auto-Fetch & Download)**:
-  - Bağlantı yapıştırıldığında arka planda otomatik bilgi sorgulama.
-  - Bilgi henüz çekilmemiş olsa bile "İNDİR" butonuna basıldığında önce otomatik bilgi çekip ardından indirmeyi başlatma.
-  - Doğrudan medya dosyaları (`.mp4`, `.webm` vb.) ve tekil video/ses akışları için kusursuz geri dönüş (fallback) desteği.
-
-- **Klavye ve Erişilebilirlik Odaklı**:
-  - `Tab` / `Shift+Tab` ile tüm kontroller arasında eksiksiz gezinme (`WS_TABSTOP` ve `IsDialogMessageW`).
-  - `Enter`: URL kutusundayken önce bilgi çekip indirmeyi başlatır.
-  - `Esc`: Devam eden işlemi iptal eder veya pencereyi kapatır.
-
-- **Akıllı Süreç Yönetimi (Job Object)**:
-  - İptal durumunda yetim `yt-dlp` veya `ffmpeg` süreçleri kalmaz; Windows Job Object sınırları ile tüm süreç ağacı anında ve temiz şekilde sonlandırılır.
-
-- **Kayıt Defteri & Klasör Kalıcılığı**:
-  - Seçilen indirme dizini `HKCU\Software\ff-dlp-viewer\DownloadDir` altında saklanır ve bir sonraki açılışta korunur.
-  - Modern COM `IFileOpenDialog` ile klasör seçimi.
-
-- **Steam/WhatsApp Tarzı Tepsi Yaşam Döngüsü**:
-  - `X` uygulamayı kapatmaz; pencereyi sistem tepsisine gizler ve arka planda çalışmaya devam eder.
-  - Tam çıkış: tepsi simgesine sağ tık → `Çıkış`. İndirme sürüyorsa önce onay ister.
-  - Kısayol tekrar açılırsa yeni kopya başlatılmaz; gizli pencere öne getirilir.
-  - İlk kapatmada bir kerelik "arka planda çalışıyor" bilgilendirmesi gösterilir.
-
-- **Tekil Örnek (Single Instance) ve Komut Satırı Entegrasyonu**:
-  - Named Mutex (`Local\ff-dlp-viewer-light`) ile aynı anda birden fazla kopya açılmaz.
-  - `--url <URL>` veya `--url=URL` ile ikinci bir örnek çağrıldığında bağlantı açık olan pencereye `WM_COPYDATA` ile aktarılır ve pencere öne getirilir.
+The final executable is **only ~345 KB**, with memory usage around 10–15 MB.
 
 ---
 
-## Klavye Kısayolları
+## Highlights
 
-| Kısayol | Eylem |
+- **Ultra-light with zero runtime (< 1 MB)**:
+  - No external DLL dependencies; it links statically against the native Windows system libraries.
+  - Fast startup, zero lag and minimal resource usage (RAM: ~12 MB).
+
+- **Game Boy inspired 8-bit interface**:
+  - Classic DMG palette: only four shades of green (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`).
+  - Every button, choice chip, checkbox, progress bar, dropdown, toast and confirmation dialog is custom drawn; there is no external image or font file.
+  - Its own title bar (drag / minimize / close), sharp corners, hard 2 px shadows. No gradients, blur or glow.
+  - System font `Consolas`, anti-aliasing off; all accented characters are fully supported.
+  - Fixed 646×485 design, scaled with Per-Monitor V2 DPI.
+
+- **One-click automatic fetch & download**:
+  - Automatic metadata lookup in the background as soon as a link is pasted.
+  - Even if the info has not been fetched yet, pressing "DOWNLOAD" first fetches the metadata automatically and then starts the download.
+  - Seamless fallback for direct media files (`.mp4`, `.webm`, etc.) and single video/audio streams.
+
+- **Keyboard and accessibility focused**:
+  - Complete navigation across all controls with `Tab` / `Shift+Tab` (`WS_TABSTOP` and `IsDialogMessageW`).
+  - `Enter`: in the URL box, fetches the info first and starts the download.
+  - `Esc`: cancels the running operation or closes the window.
+
+- **Smart process management (Job Object)**:
+  - No orphaned `yt-dlp` or `ffmpeg` processes on cancel; the whole process tree is terminated instantly and cleanly through the Windows Job Object boundary.
+
+- **Registry and folder persistence**:
+  - The chosen download directory is stored under `HKCU\Software\ff-dlp-viewer\DownloadDir` and survives restarts.
+  - Folder selection through the modern COM `IFileOpenDialog`.
+
+- **Steam/WhatsApp style tray lifecycle**:
+  - `X` does not quit; it hides the window to the system tray and keeps running in the background.
+  - Full exit: right-click the tray icon → `Quit`. If a download is running, it asks for confirmation first.
+  - Launching the shortcut again does not start a new copy; the hidden window is brought forward.
+  - On the first close, a one-time "running in the background" notice is shown.
+
+- **Single instance and command-line integration**:
+  - A named mutex (`Local\ff-dlp-viewer-light`) prevents more than one copy from running at once.
+  - When a second instance is started with `--url <URL>` or `--url=URL`, the link is transferred to the open window via `WM_COPYDATA` and the window is brought forward.
+
+---
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
 |---|---|
-| `Enter` | URL kutusundayken indirmeyi başlatır (bilgi çekilmemişse önce bilgiyi alıp indirir). |
-| `Esc` | Aktif bir işlem varsa iptal eder, yoksa pencereyi tepsiye gizler. |
-| `Tab` / `Shift+Tab` | Arayüz kontrolleri arasında sırayla gezinir. |
-| `Space` | Odaklanan butona tıklar veya radyo/onay kutusunu değiştirir. |
+| `Enter` | Starts the download while in the URL box (fetches the info first if needed). |
+| `Esc` | Cancels an active operation, otherwise hides the window to the tray. |
+| `Tab` / `Shift+Tab` | Moves focus through the interface controls in order. |
+| `Space` | Clicks the focused button or toggles a radio/check box. |
 
 ---
 
-## Komut Satırı Kullanımı
+## Command-line usage
 
 ```cmd
-# Grafik arayüzü normal başlatır
+# Starts the GUI normally
 ff-dlp-viewer.exe
 
-# Belirtilen bağlantıyı açıp otomatik olarak bilgilerini getirir
+# Opens the given link and fetches its info automatically
 ff-dlp-viewer.exe --url "https://www.youtube.com/watch?v=..."
 
-# Kısa yardım ve sürüm pencereleri
+# Short help and version dialogs
 ff-dlp-viewer.exe --help
 ff-dlp-viewer.exe --version
 ```
 
 ---
 
-## Geliştirici & Derleme Kılavuzu
+## Developer & build guide
 
-### Gereksinimler
-- **MinGW-w64 GCC** (C11 destekli)
+### Requirements
+- **MinGW-w64 GCC** (with C11 support)
 - **windres** (GNU Resource Compiler)
 
-### 1. Derleme
-Projeyi tek komutla derlemek için:
+### 1. Build
+To build the project with one command:
 ```cmd
 build.bat
 ```
 
-Veya doğrudan derleyici komutu:
+Or directly with the compiler:
 ```cmd
 windres res\res.rc -O coff -o res.o
 gcc -O3 -s -flto -ffunction-sections -fdata-sections -Wl,--gc-sections -static -mwindows -municode -Isrc src\main.c src\ui.c src\gb_ui.c src\engine.c src\codec_selector.c src\detector.c src\sanitization.c src\cjson.c res.o -o dist\ff-dlp-viewer.exe -lcomctl32 -lcomdlg32 -lshell32 -lole32 -luuid -lgdi32 -luser32 -lurlmon
 ```
 
-### 2. Birim Testleri
-Çekirdek algoritmaları (platform dedektörü, dosya adı sanitizasyonu, kodek seçimi ve doğrudan medya yönetimi) test etmek için:
+### 2. Unit tests
+To test the core algorithms (platform detector, file-name sanitization, codec selection and direct media handling):
 ```cmd
 gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c src/cjson.c tests/test_core.c -o tests/test_core.exe
 .\tests\test_core.exe
@@ -113,6 +115,6 @@ gcc -O2 -Isrc src/detector.c src/sanitization.c src/codec_selector.c src/cjson.c
 
 ---
 
-## Lisans
+## License
 
-Bu proje [MIT Lisansı](LICENSE) ile lisanslanmıştır. Dahili kullanılan `yt-dlp` (The Unlicense) ve `FFmpeg` (LGPL v2.1+) kütüphanelerinin lisans şartlarına saygı duyulur.
+This project is licensed under the [MIT License](LICENSE). The bundled `yt-dlp` (The Unlicense) and `FFmpeg` (LGPL v2.1+) components keep their own license terms.

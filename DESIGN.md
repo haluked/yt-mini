@@ -1,174 +1,176 @@
-# Tasarım Şartnamesi (DESIGN.md) — Game Boy 8-bit
+# Design Specification (DESIGN.md) — Game Boy 8-bit
+
+**English** · [Türkçe](DESIGN.tr.md)
 
 <!-- impeccable:design-schema 1 -->
 
-## 1. Görsel kimlik
+## 1. Visual identity
 
-Uygulama, **Game Boy DMG** ekranı gibi davranır: yalnızca dört yeşil ton, keskin
-pikseller, sert çerçeveler ve sistem fontu. Amaç nostaljik bir oyun konsolu hissi
-vermek; süslemek değil. Her öğe ya bir işlevi yerine getirir ya da yer kaplamaz.
+The app behaves like a **Game Boy DMG** screen: only four shades of green, sharp
+pixels, hard frames and a system font. The goal is a nostalgic game-console feel,
+not decoration. Every element either serves a function or takes no space.
 
-**Fiziksel sahne:** Akşam evde, mutfak masasında, tek elle bağlantı yapıştıran bir
-aile üyesi. Bu yüzden yazılar büyük ve net, hedef alanlar rahat tıklanır, pencere
-sabit ve öngörülebilirdir.
+**Physical scene:** a family member at home in the evening, at the kitchen table,
+pasting a link with one hand. That is why the text is large and clear, targets are
+easy to click, and the window is fixed and predictable.
 
-### Temel kurallar
-1. **Dört ton:** Ara renk yok. Gerektiğinde 1 px dama deseni (dither) kullanılır.
-2. **Piksel köşe:** Köşeler yuvarlatılır ama bulanıklaştırılmaz: büyük
-   yüzeylerde 5 px, denetimlerde 3 px, 45° piksel basamağıyla kesilir
-   (`gb_fill_round`, `gb_frame_round`, `gb_round_window`). Anti-aliased
-   (ara ton üreten) yuvarlatma yasaktır. Çerçeve ve gölge 2 px, sert.
-3. **Gölge = 2 px kayma:** Bulanık gölge, gradient, parlama yok. Gölge,
-   gövdenin dışında kalan bölgeye kırpılarak çizilir (`gb_shadow`), böylece
-   kesik köşede çentik oluşmaz.
-4. **Özel çizim:** Buton, chip, checkbox, açılır liste, ilerleme çubuğu, bildirim,
-   onay penceresi ve başlık çubuğu `BS_OWNERDRAW`/GDI ile çizilir. Yerel
-   `COMBOBOX`, `BUTTON` (radio/checkbox) ve `PROGRESS_CLASS` kullanılmaz.
-   Tek istisna: URL giriş kutusu (`EDIT`), çünkü IME, pano ve metin seçimi
-   güvenilirliği için yerel denetim gerekir.
-5. **Harici varlık yok:** Görsel, ikon dosyası veya font taşınmaz. Tray ikonu
-   dışında her şey kodla çizilir.
-6. **Sabit yerleşim:** Pencere 646×485 tasarım birimidir; içerik değişince
-   zıplamaz. Yalnızca DPI ile ölçeklenir.
+### Ground rules
+1. **Four shades:** no intermediate colors. A 1 px dither pattern is used when needed.
+2. **Pixel corners:** corners are rounded but never blurred: 5 px on large surfaces,
+   3 px on controls, cut with a 45° pixel stair-step (`gb_fill_round`,
+   `gb_frame_round`, `gb_round_window`). Anti-aliased (blended) rounding is banned.
+   Frames and shadows are 2 px and hard.
+3. **Shadow = 2 px offset:** no blurred shadow, gradient or glow. The shadow is
+   clipped to the area outside the body (`gb_shadow`), so the cut corner gets no notch.
+4. **Custom drawing:** buttons, chips, checkbox, dropdown, progress bar, toast,
+   confirmation dialog and title bar are drawn with `BS_OWNERDRAW`/GDI. Native
+   `COMBOBOX`, `BUTTON` (radio/checkbox) and `PROGRESS_CLASS` are not used.
+   The only exception is the URL input box (`EDIT`), because IME, clipboard and text
+   selection reliability require a native control.
+5. **No external assets:** no image, icon file or font is shipped. Everything except
+   the tray icon is drawn in code.
+6. **Fixed layout:** the window is 646×485 design units; it does not jump when content
+   changes. Only DPI scales it.
 
 ---
 
-## 2. Palet
+## 2. Palette
 
-| Token | Hex | Rol |
+| Token | Hex | Role |
 | :--- | :--- | :--- |
-| `GB_DARKEST` | `#0F380F` | Metin, çerçeve, konsol dış çerçevesi, panel başlık şeridi, seçili yüzey, dolu ilerleme |
-| `GB_DARK` | `#306230` | Sayfa zemini, buton yüzü, hover, gölge, ayırıcı, ikincil yüzey |
-| `GB_LIGHT` | `#8BAC0F` | İlerleme kanalı, çukur alan, pasif dama |
-| `GB_LIGHTEST` | `#9BBC0F` | Panel ve giriş yüzeyi, açık metin |
+| `GB_DARKEST` | `#0F380F` | Text, frame, console outer frame, panel header strip, selected surface, filled progress |
+| `GB_DARK` | `#306230` | Page background, button face, hover, shadow, divider, secondary surface |
+| `GB_LIGHT` | `#8BAC0F` | Progress channel, recessed area, passive dither |
+| `GB_LIGHTEST` | `#9BBC0F` | Panel and input surface, light text |
 
-Kontrast: `GB_DARKEST` / `GB_LIGHTEST` ≈ **6.0:1** (gövde metni için yeterli).
-`GB_LIGHTEST` / `GB_DARK` ≈ **3.7:1**; bu yüzden koyu zemin üzerinde yalnızca
-büyük ve kalın metin (başlık, rozet, şerit) `GB_LIGHTEST` ile yazılır. Küçük
-gövde metni daima açık panel üzerinde `GB_DARKEST` ile yazılır.
+Contrast: `GB_DARKEST` / `GB_LIGHTEST` ≈ **6.0:1** (enough for body text).
+`GB_LIGHTEST` / `GB_DARK` ≈ **3.7:1**; therefore only large, bold text (title,
+badge, strip) is written in `GB_LIGHTEST` on a dark background. Small body text is
+always `GB_DARKEST` on a light panel.
 
 ---
 
-## 3. Tipografi
+## 3. Typography
 
-Sistemde kurulu **Consolas** kullanılır; `NONANTIALIASED_QUALITY` ile çizilir.
-Böylece hem 8-bit keskinliği elde edilir hem Türkçe karakterler (ğ, ş, ı, İ, ç,
-ö, ü) garanti olur ve paket boyutu artmaz.
+The installed **Consolas** is used, drawn with `NONANTIALIASED_QUALITY`. This gives
+both 8-bit sharpness and guaranteed accented characters (ğ, ş, ı, İ, ç, ö, ü) without
+increasing the package size.
 
-| Token | Tanım | Kullanım |
+| Token | Definition | Usage |
 | :--- | :--- | :--- |
-| `FONT_TITLE` | Consolas 20 bold | Uygulama adı |
-| `FONT_BOLD` | Consolas 14 bold | Bölüm başlığı, chip, önemli buton |
-| `FONT_BODY` | Consolas 14 | Gövde, medya başlığı |
-| `FONT_SMALL` | Consolas 12 | Teknik veri, küçük butonlar, not |
+| `FONT_TITLE` | Consolas 20 bold | App name |
+| `FONT_BOLD` | Consolas 14 bold | Section heading, chip, important button |
+| `FONT_BODY` | Consolas 14 | Body, media title |
+| `FONT_SMALL` | Consolas 12 | Technical data, small buttons, notes |
 
-Hiyerarşi: **uygulama adı → bölüm şeridi → medya başlığı → gövde → teknik veri.**
-
----
-
-## 4. Ölçü ve yerleşim
-
-- **Pencere:** 646×485 istemci alanı; sabit boyut, kendi başlık çubuğu.
-  Köşeler bölge ile 5 px kesilir (`gb_round_window`).
-- **Başlık çubuğu:** 44 px. Sürüklenebilir (`HTCAPTION`), sağda küçült/kapat
-  düğmeleri (26×24). Platform rozeti düğmelerin solunda.
-- **Konsol çerçevesi:** 6 px `GB_DARKEST` dış çerçeve + 1 px `GB_LIGHTEST`
-  iç çizgi. Zemin `GB_DARK`.
-- **8 px ızgara:** dış boşluk 16-22 px, bölüm arası 14 px, iç boşluk 8 px.
-- **Bölüm panelleri:** `GB_LIGHTEST` zemin, 2 px `GB_DARKEST` çerçeve,
-  5 px kesik köşe. Üstte tam genişlikte 20 px koyu başlık şeridi
-  (`1 BAĞLANTI`, `2 MEDYA VE FORMAT`, `3 İNDİRME DURUMU`); şerit panelin
-  iç çerçevesine oturur, köşeleri çerçevenin altında kalır.
-- **Sabit medya yüksekliği:** 212 px; boş durum, künye, seçenekler ve not bu
-  alanı paylaşır. Pencere içerikle birlikte büyümez.
+Hierarchy: **app name → section strip → media title → body → technical data.**
 
 ---
 
-## 5. Bileşen dili
+## 4. Metrics and layout
 
-### A. Buton (`gb_draw_control`, rol `PUSH` / `PRIMARY` / `DANGER`)
-Yüz `GB_LIGHTEST` (birincil/tehlikeli eylemde `GB_DARKEST`), 2 px `GB_DARKEST`
-çerçeve, sağ-alt 2 px `GB_DARK` sert gölge, 3 px kesik köşe. Basılınca yüz
-`GB_DARK` olur ve içerik 1 px aşağı kayar. Pasifken zemin `GB_LIGHT` dama
-deseniyle doldurulur. Hover'da yüz `GB_DARK`, yazı `GB_LIGHTEST`. Odakta 1 px
-iç çerçeve.
-
-### B. Seçim çipi (`CHIP`)
-Video / Ses seçimi. Seçili: `GB_DARKEST` zemin + `GB_LIGHTEST` yazı. Seçili
-değil: `GB_LIGHTEST` zemin + `GB_DARK` çerçeve. Hover: `GB_LIGHT`.
-
-### C. Onay kutusu (`CHECK`)
-14×14 px kare; `GB_LIGHTEST` zemin, 2 px `GB_DARKEST` çerçeve. İşaretliyken içi
-`GB_DARKEST` olur ve 2 px'lik piksel onay işareti `GB_LIGHTEST` ile çizilir.
-
-### D. Açılır liste (`DROP` + `gb_dropdown_open`)
-Kapalı hâlde buton gibi görünür; sağda piksel aşağı oku vardır. Tıklanınca
-`WS_POPUP` bir liste açılır: `GB_LIGHTEST` zemin, 2 px çerçeve, 24 px satır.
-Seçili satır `GB_DARKEST`/`GB_LIGHTEST`, hover `GB_DARK`/`GB_LIGHTEST`, seçili
-satırın solunda 2×4 px işaret. `↑/↓`, `Enter`, `Esc` ve dışına tıklama desteklenir.
-
-### E. İlerleme çubuğu
-14 px yüksekliğinde; `GB_LIGHT` kanal, 2 px `GB_DARKEST` çerçeve, 3 px kesik
-köşe. Boş kanalda 1 px `GB_DARK` bölme çizgileri vardır; böylece çubuk URL
-girişiyle karışmaz. Dolgu, 7 px blok + 2 px boşluk ritmiyle `GB_DARKEST`
-bloklardan oluşur. Animasyon yok; gerçek veriyle güncellenir.
-
-### F. URL girişi
-Yerel `EDIT` denetimi; çevresinde 2 px `GB_DARKEST` çerçeve. Zemin `GB_LIGHTEST`,
-metin `GB_DARKEST`, yatay iç boşluk 8 px. Odaklandığında imleç `GB_DARKEST`.
-
-### G. Bildirim (toast)
-370×96 px, `GB_LIGHTEST` zemin, 2 px çerçeve. Üstte 22 px `GB_DARKEST` şerit:
-platform rozeti (`GB_DARK`), süre, sağda `X`. Altında başlık, "İNDİRMEYE HAZIR -
-4 SN SONRA KAPANIR" ve sağda `İNDİR` butonu. 4 saniye sonra kapanır; fare üzerine
-gelince süre sıfırlanır.
-
-### H. Modal mesaj kutusu (`gb_message_box`)
-Sahibinin ortasında açılır. `GB_LIGHTEST` zemin, 2 px çerçeve, 26 px
-`GB_DARKEST` başlık şeridi, solda 30×30 ikon karesi (`X`, `!`, `?`). Altta sağa
-yaslı butonlar: `TAMAM`, `EVET`, `HAYIR`, `İPTAL`. `Enter` varsayılanı, `Esc`
-iptali tetikler. Sahip pencere modal sırasında devre dışıdır.
+- **Window:** 646×485 client area; fixed size, its own title bar.
+  Corners are cut at 5 px with a region (`gb_round_window`).
+- **Title bar:** 44 px. Draggable (`HTCAPTION`), minimize/close buttons on the right
+  (26×24). The platform badge sits left of the buttons.
+- **Console frame:** 6 px `GB_DARKEST` outer frame + 1 px `GB_LIGHTEST` inner line.
+  Background `GB_DARK`.
+- **8 px grid:** outer padding 16–22 px, section gap 14 px, inner padding 8 px.
+- **Section panels:** `GB_LIGHTEST` background, 2 px `GB_DARKEST` frame, 5 px cut
+  corners. A full-width 20 px dark header strip on top
+  (`1 LINK`, `2 MEDIA & FORMAT`, `3 DOWNLOAD STATUS`); the strip sits inside the
+  panel frame and its corners stay under the frame.
+- **Fixed media height:** 212 px; the empty state, metadata, options and note share
+  this area. The window does not grow with the content.
 
 ---
 
-## 6. Durumlar
+## 5. Component language
 
-| Durum | Görünüm |
+### A. Button (`gb_draw_control`, role `PUSH` / `PRIMARY` / `DANGER`)
+Face `GB_LIGHTEST` (`GB_DARKEST` for primary/danger actions), 2 px `GB_DARKEST`
+frame, 2 px hard `GB_DARK` shadow at the bottom-right, 3 px cut corner. When pressed
+the face turns `GB_DARK` and the content moves down 1 px. When disabled the background
+is filled with a `GB_LIGHT` dither pattern. On hover the face turns `GB_DARK` and the
+text `GB_LIGHTEST`. Focus adds a 1 px inner frame.
+
+### B. Choice chip (`CHIP`)
+Video / Audio selection. Selected: `GB_DARKEST` background + `GB_LIGHTEST` text.
+Unselected: `GB_LIGHTEST` background + `GB_DARK` frame. Hover: `GB_LIGHT`.
+
+### C. Checkbox (`CHECK`)
+14×14 px square; `GB_LIGHTEST` background, 2 px `GB_DARKEST` frame. When checked the
+inside becomes `GB_DARKEST` and a 2 px pixel check mark is drawn in `GB_LIGHTEST`.
+
+### D. Dropdown (`DROP` + `gb_dropdown_open`)
+Looks like a button when closed; it has a pixel down-arrow on the right. Clicking opens
+a `WS_POPUP` list: `GB_LIGHTEST` background, 2 px frame, 24 px rows. Selected row
+`GB_DARKEST`/`GB_LIGHTEST`, hover `GB_DARK`/`GB_LIGHTEST`, with a 2×4 px mark left of
+the selected row. `↑/↓`, `Enter`, `Esc` and clicking outside are supported.
+
+### E. Progress bar
+14 px high; `GB_LIGHT` channel, 2 px `GB_DARKEST` frame, 3 px cut corner. The empty
+channel has 1 px `GB_DARK` divider lines, so the bar is not mistaken for the URL input.
+The fill consists of `GB_DARKEST` blocks with a 7 px block + 2 px gap rhythm. No
+animation; it updates with real data.
+
+### F. URL input
+Native `EDIT` control; surrounded by a 2 px `GB_DARKEST` frame. Background
+`GB_LIGHTEST`, text `GB_DARKEST`, 8 px horizontal inner padding. The caret is
+`GB_DARKEST` when focused.
+
+### G. Toast
+370×96 px, `GB_LIGHTEST` background, 2 px frame. A 22 px `GB_DARKEST` strip on top:
+platform badge (`GB_DARK`), duration, `X` on the right. Below it the title,
+"READY TO DOWNLOAD - CLOSES IN 4 S" and a `DOWNLOAD` button on the right. It closes
+after 4 seconds; hovering resets the timer.
+
+### H. Modal message box (`gb_message_box`)
+Opens centered over its owner. `GB_LIGHTEST` background, 2 px frame, 26 px
+`GB_DARKEST` title strip, 30×30 icon square on the left (`X`, `!`, `?`). Buttons are
+right-aligned at the bottom: `OK`, `YES`, `NO`, `CANCEL`. `Enter` triggers the default,
+`Esc` triggers cancel. The owner window is disabled while the modal is open.
+
+---
+
+## 6. States
+
+| State | Appearance |
 | :--- | :--- |
-| Boş | Medya panelinde "Bağlantıyı girin veya yapıştırın." + desteklenen platformlar |
-| Getiriliyor | `Bilgi Getir` → `Çekiliyor...`, buton pasif, durum "Bilgi getiriliyor..." |
-| Hazır | Başlık + süre/platform/akış sayısı + hedef konteyner notu; `İNDİR` etkin |
-| İndiriliyor | Bloklar dolar; `%`, hız, kalan süre ve `MB / MB` durum satırında |
-| İşleniyor | Çubuk %100, "Akışlar birleştiriliyor ve konteyner tamamlanıyor..." |
-| Tamamlandı | "Dosya başarıyla kaydedildi.", `Dosya Konumunu Aç` görünür |
-| Hata | `X` ikonlu modal mesaj kutusu; durum satırında hata özeti |
-| Pasif | Dama desenli zemin, `GB_DARK` çerçeve/yazı, tıklama yok |
+| Empty | Media panel shows "Enter or paste a link." + supported platforms |
+| Fetching | `Fetch Info` → `Fetching...`, button disabled, status "Fetching info..." |
+| Ready | Title + duration/platform/stream count + target container note; `DOWNLOAD` enabled |
+| Downloading | Blocks fill; `%`, speed, remaining time and `MB / MB` on the status line |
+| Processing | Bar at 100%, "Merging streams and finishing the container..." |
+| Finished | "File saved successfully.", `Open File Location` visible |
+| Error | Modal message box with an `X` icon; error summary on the status line |
+| Disabled | Dithered background, `GB_DARK` frame/text, no click |
 
 ---
 
-## 7. Yasaklar
+## 7. Prohibitions
 
-- Dört ton dışında renk; gradient, blur, parlama, yumuşak gölge.
-- Anti-aliased (bulanık) köşe; kart içinde kart.
-- Yerel `COMBOBOX`, radio/checkbox, `PROGRESS_CLASS` (URL `EDIT` istisnadır).
-- Emoji veya unicode simgeyle ikon taklidi.
-- Dekoratif animasyon, açılışta sıralı giriş efekti.
-- Harici görsel/font dosyası eklemek (boyut ve determinizm).
-- Küçük metni `GB_DARK` zemin üzerine yazmak (kontrast).
+- Any color outside the four shades; gradient, blur, glow, soft shadow.
+- Anti-aliased (blurry) corners; cards inside cards.
+- Native `COMBOBOX`, radio/checkbox, `PROGRESS_CLASS` (the URL `EDIT` is the exception).
+- Icons imitated with emoji or unicode symbols.
+- Decorative animation; staggered entrance effects.
+- Adding external image/font files (size and determinism).
+- Writing small text on a `GB_DARK` background (contrast).
 
 ---
 
-## 8. Uygulama notları
+## 8. Implementation notes
 
-- Palet ve çizim ilkelleri: `src/gb_ui.h`, `src/gb_ui.c`.
-- Köşe/gölge ilkelleri: `gb_fill_round`, `gb_frame_round`, `gb_shadow`,
-  `gb_round_window`. Yarıçaplar `GB_RADIUS_SMALL` (3) / `GB_RADIUS_LARGE` (5).
-- Köşe biçimi derleme zamanında `GB_CORNER_DEFAULT` ile seçilir; önizleme
-  derlemesi `-DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH` ile alınır.
-- `-DGB_PREVIEW` ayrı mutex kullanır; önizleme, kurulu uygulamayla aynı anda
-  çalışabilir.
-- Ana pencere, yerleşim ve durum yönetimi: `src/ui.c`.
-- Ölçekleme: `gb_scale()` / `S()` — 96 DPI taban, Per-Monitor V2.
-- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~345 KB.
-- Yeni bileşen eklerken: rengi paletten seç, 2 px çerçeve kullan, beş durumu
-  (normal, hover, basılı, pasif, odak) çiz, metni Türkçe tut.
+- Palette and drawing primitives: `src/gb_ui.h`, `src/gb_ui.c`.
+- Corner/shadow primitives: `gb_fill_round`, `gb_frame_round`, `gb_shadow`,
+  `gb_round_window`. Radii are `GB_RADIUS_SMALL` (3) / `GB_RADIUS_LARGE` (5).
+- Corner style is chosen at build time with `GB_CORNER_DEFAULT`; preview builds use
+  `-DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH`.
+- `-DGB_PREVIEW` uses a separate mutex so a preview can run alongside the installed app.
+- Main window, layout and state management: `src/ui.c`.
+- Scaling: `gb_scale()` / `S()` — 96 DPI base, Per-Monitor V2.
+- Size budget: **< 1 MB mandatory**; the current build is ~345 KB.
+- When adding a new component: pick the color from the palette, use a 2 px frame, draw
+  all five states (normal, hover, pressed, disabled, focus), and keep the text short and
+  plain English.
