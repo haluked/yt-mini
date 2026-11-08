@@ -1315,9 +1315,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                     if (hData) {
                         wchar_t *pText = (wchar_t*)GlobalLock(hData);
                         if (pText) {
+                            /* GlobalUnlock'tan SONRA bu belleğe dokunmak
+                               use-after-unlock olur; kontrolü önce yap. */
+                            int valid = is_valid_url(pText);
                             SetWindowTextW(g_hEditUrl, pText);
                             GlobalUnlock(hData);
-                            if (is_valid_url(pText)) {
+                            if (valid) {
                                 trigger_fetch();
                             }
                         }

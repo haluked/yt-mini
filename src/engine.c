@@ -222,10 +222,105 @@ static int ensure_directory(const wchar_t *dir)
     return rc == ERROR_SUCCESS || rc == ERROR_ALREADY_EXISTS || rc == ERROR_FILE_EXISTS;
 }
 
-/* yt-dlp bir Python programıdır; Windows'ta pipe (konsol olmayan) çıktısını
-   varsayılan olarak ANSI kod sayfasına (Türkçe Windows'ta cp1254) yazar.
-   Ş, ı, ğ ve emojiler bu yüzden bozulurdu. PYTHONUTF8=1 alt sürecin tüm
-   çıktılarını UTF-8'e zorlar; biz de zaten CP_UTF8 ile çözüyoruz. */
+/* Bir pipe'ı EOF'a kadar okuyup son `cap - 1` baytı buf'a yazar.
+   Tampon dolduktan sonra da okumaya devam eder: çocuk süreç stderr'e yazarken
+   bloke olmasın (aksi halde iki pipe'lı kurulumda kilitlenme olur). */
+static void drain_pipe_blocking(HANDLE pipe, char *buf, size_t cap, size_t *out_len)
+{
+    char chunk[1024];
+    DWORD read = 0;
+    size_t len = 0;
+
+    if (buf && cap > 0) buf[0] = '\0';
+    while (ReadFile(pipe, chunk, sizeof(chunk), &read, NULL) && read > 0) {
+        if (!buf || cap == 0) continue;
+        size_t copy = read;
+        if (len + copy + 1 > cap) {
+            copy = (cap > len + 1) ? (cap - len - 1) : 0;
+        }
+        if (copy > 0) {
+            memcpy(buf + len, chunk, copy);
+            len += copy;
+            buf[len] = '\0';
+        }
+    }
+    if (out_len) *out_len = len;
+}
+
+typedef struct {
+    HANDLE pipe;
+    char *buf;
+    size_t cap;
+    size_t len;
+} StderrDrainParams;
+
+/* Aynı anda tek fetch çalıştığı için (engine durumu) bu tamponlar statiktir;
+   thread join zaman aşımına uğrasa bile ölü stack'e yazma riski olmaz. */
+static char g_drain_buf[4096];
+static StderrDrainParams g_drain_params;
+
+/* yt-dlp'nin --print-to-file çıktısı UTF-8'dir; dil/kod sayfasından bağımsız
+   olduğu için nihai dosya yolunu buradan okuyoruz. Dosyanın son boş olmayan
+   satırını döndürür. */
+static int read_last_utf8_line(const wchar_t *path, wchar_t *out, size_t max_len)
+{
+    if (!out || max_len == 0) return 0;
+    out[0] = L'\0';
+    if (!path || !*path) return 0;
+
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+
+    char buf[8192];
+    DWORD total = 0, got = 0;
+    while (total < sizeof(buf) - 1) {
+        DWORD want = (DWORD)(sizeof(buf) - 1 - total);
+        if (!ReadFile(h, buf + total, want, &got, NULL) || got == 0) break;
+        total += got;
+    }
+    CloseHandle(h);
+    buf[total] = '\0';
+
+    int end = (int)total;
+    while (end > 0 && (buf[end - 1] == '\n' || buf[end - 1] == '\r')) end--;
+    if (end <= 0) return 0;
+    int start = end;
+    while (start > 0 && buf[start - 1] != '\n' && buf[start - 1] != '\r') start--;
+    int len = end - start;
+    if (len <= 0) return 0;
+
+    int n = MultiByteToWideChar(CP_UTF8, 0, buf + start, len, out, (int)(max_len - 1));
+    if (n <= 0) { out[0] = L'\0'; return 0; }
+    out[n] = L'\0';
+    return 1;
+}
+
+/* stdout satırları UTF-8 olmayabilir (yt-dlp cp1254 yazabiliyor). Önce UTF-8
+   dene, olmazsa sistem ANSI kod sayfasına düş. */
+static void decode_path_bytes(const char *src, wchar_t *dst, size_t max_len)
+{
+    if (!dst || max_len == 0) return;
+    dst[0] = L'\0';
+    if (!src || !*src) return;
+    int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, src, -1, dst, (int)(max_len - 1));
+    if (n <= 0) n = MultiByteToWideChar(CP_ACP, 0, src, -1, dst, (int)(max_len - 1));
+    if (n <= 0) dst[0] = L'\0';
+    else dst[n] = L'\0';
+}
+
+static DWORD WINAPI stderr_drain_thread(LPVOID param)
+{
+    StderrDrainParams *d = (StderrDrainParams*)param;
+    drain_pipe_blocking(d->pipe, d->buf, d->cap, &d->len);
+    return 0;
+}
+
+/* yt-dlp bir Python programıdır. PYTHONUTF8=1 Python'un kendi dosya/G/Ç
+   katmanını UTF-8'e zorlar; ancak yt-dlp.exe'nin KONSOL çıktısı yine de yerel
+   kod sayfasında (Türkçe Windows'ta cp1254) gelebiliyor. Bu yüzden:
+     - JSON çıktısı ASCII kaçışlıdır (\u00f6) -> her zaman güvenli,
+     - nihai dosya yolu --print-to-file ile UTF-8 dosyadan okunur. */
 static wchar_t *build_child_environment(void)
 {
     LPCWSTR src = GetEnvironmentStringsW();
@@ -441,8 +536,8 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
 
     /* stdout: yalnızca JSON; stderr: uyarı/hata satırları.
        Aynı pipe'a karışsalar JSON'dan önce gelen tek bir satır bile ayrıştırmayı bozuyordu. */
-    HANDLE hReadPipe, hWritePipe;
-    HANDLE hErrReadPipe, hErrWritePipe;
+    HANDLE hReadPipe = NULL, hWritePipe = NULL;
+    HANDLE hErrReadPipe = NULL, hErrWritePipe = NULL;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
     if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0) ||
         !CreatePipe(&hErrReadPipe, &hErrWritePipe, &sa, 64 * 1024)) {
@@ -478,7 +573,8 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
 
     EnterCriticalSection(&g_engine_cs);
     BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
-        CREATE_NO_WINDOW | CREATE_SUSPENDED, child_env, NULL, &si, &pi);
+        CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+        child_env, NULL, &si, &pi);
     free(child_env);
 
     if (!ok) {
@@ -544,6 +640,18 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     char chunk[8192];
     int truncated = 0;
 
+    /* stderr ayrı bir thread'de sürekli boşaltılır. Aksi halde çocuk 64 KB'tan
+       fazla hata/uyarı yazarsa stderr pipe'ı dolar, çocuk bloke olur ve biz
+       stdout'ta EOF beklerken uygulama kilitlenirdi. */
+    char err_buf[4096];
+    err_buf[0] = '\0';
+    g_drain_buf[0] = '\0';
+    g_drain_params.pipe = hErrReadPipe;
+    g_drain_params.buf = g_drain_buf;
+    g_drain_params.cap = sizeof(g_drain_buf);
+    g_drain_params.len = 0;
+    HANDLE hDrainThread = CreateThread(NULL, 0, stderr_drain_thread, &g_drain_params, 0, NULL);
+
     while (ReadFile(hReadPipe, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
         if (buf_len + bytes_read + 1 >= buf_capacity) {
             buf_capacity = (buf_capacity * 2) + bytes_read + 1;
@@ -563,18 +671,15 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     CloseHandle(hReadPipe);
     WaitForSingleObject(pi.hProcess, INFINITE);
 
-    /* Süreç kesin bitti; şimdi stderr'i güvenle boşalt (hata metinleri burada). */
-    char err_buf[4096];
-    size_t err_len = 0;
-    err_buf[0] = '\0';
-    while (ReadFile(hErrReadPipe, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
-        size_t copy = bytes_read;
-        if (err_len + copy + 1 > sizeof(err_buf)) copy = sizeof(err_buf) - err_len - 1;
-        if (copy > 0) {
-            memcpy(err_buf + err_len, chunk, copy);
-            err_len += copy;
-            err_buf[err_len] = '\0';
-        }
+    /* Süreç bitti: stderr yazan thread EOF alıp döner. Thread açılamadıysa
+       (çok nadir) aynı işi burada yap. */
+    if (hDrainThread) {
+        WaitForSingleObject(hDrainThread, 10000);
+        CloseHandle(hDrainThread);
+        memcpy(err_buf, g_drain_buf, sizeof(err_buf));
+        err_buf[sizeof(err_buf) - 1] = '\0';
+    } else {
+        drain_pipe_blocking(hErrReadPipe, err_buf, sizeof(err_buf), NULL);
     }
     CloseHandle(hErrReadPipe);
 
@@ -820,6 +925,33 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     _snwprintf(out_template, sizeof(out_template)/sizeof(wchar_t),
         L"-o \"%ls\\%%(title).150B [%%(id)s].%%(ext)s\"", dir_escaped);
 
+    /* Nihai dosya yolunu metinden tahmin etmek yerine yt-dlp'ye UTF-8 bir
+       dosyaya yazdırıyoruz: stdout kod sayfası bozuk olabiliyor (ör. cp1254),
+       bu yüzden Türkçe/emoji başlıklı dosyalarda "Dosya Konumunu Aç" yanlış
+       yola gidiyordu. --print-to-file her zaman UTF-8 yazar. */
+    wchar_t final_path_file[MAX_PATH] = L"";
+    wchar_t final_path_arg[MAX_PATH * 2] = L"";
+    {
+        wchar_t tmp_dir[MAX_PATH];
+        if (GetTempPathW(MAX_PATH, tmp_dir) > 0) {
+            _snwprintf(final_path_file, MAX_PATH, L"%lsffdlp_finalpath_%lu.txt",
+                tmp_dir, (unsigned long)GetCurrentProcessId());
+            final_path_file[MAX_PATH - 1] = L'\0';
+            DeleteFileW(final_path_file);
+
+            /* yt-dlp bunu output template olarak işler: '%' kaçışı şart. */
+            const wchar_t *src = final_path_file;
+            wchar_t *dst = final_path_arg;
+            wchar_t *dst_end = final_path_arg + (sizeof(final_path_arg) / sizeof(wchar_t)) - 1;
+            while (*src && dst + 2 <= dst_end) {
+                if (*src == L'%') { *dst++ = L'%'; *dst++ = L'%'; }
+                else { *dst++ = *src; }
+                src++;
+            }
+            *dst = L'\0';
+        }
+    }
+
     wchar_t extra_opts[512] = L"";
     if (audio_mode) {
         if (_wcsicmp(p->selection.expected_container, L"mp3") == 0) {
@@ -831,9 +963,10 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         }
     } else if (p->selection.audio_only_reencode) {
         /* Video akışı kopyalanır, yalnızca ses AAC'ye çevrilip MP4'e birleştirilir.
-           (--recode-video kullansaydık kaynak video da yeniden kodlanacaktı.) */
+           (--recode-video kullansaydık kaynak video da yeniden kodlanacaktı.)
+           yt-dlp sözdizimi "PP:ARGS" (PP+EXE:ARGS); '+' ayırıcısı burada YANLIŞ. */
         _snwprintf(extra_opts, 511,
-            L"--merge-output-format %ls --ppa \"Merger+-c:v copy+-c:a aac\"",
+            L"--merge-output-format %ls --ppa \"Merger:-c:v copy -c:a aac\"",
             p->selection.expected_container);
     } else if (p->selection.needs_reencode) {
         _snwprintf(extra_opts, 511, L"--recode-video %ls", p->selection.expected_container);
@@ -841,18 +974,26 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         _snwprintf(extra_opts, 511, L"--merge-output-format %ls", p->selection.expected_container);
     }
 
+    wchar_t path_report_arg[MAX_PATH * 2 + 80] = L"";
+    if (final_path_file[0] != L'\0') {
+        _snwprintf(path_report_arg, sizeof(path_report_arg)/sizeof(wchar_t),
+            L"--print-to-file \"after_move:filepath\" \"%ls\"", final_path_arg);
+        path_report_arg[(sizeof(path_report_arg)/sizeof(wchar_t)) - 1] = L'\0';
+    }
+
     wchar_t cmd_line[4096];
     _snwprintf(cmd_line, 4096,
-        L"\"%ls\" -f \"%ls\" %ls %ls %ls --newline --progress-template \"%%(progress._percent_str)s|%%(progress._speed_str)s|%%(progress._eta_str)s|%%(progress.downloaded_bytes)s|%%(progress.total_bytes)s\" --no-playlist \"%ls\"",
+        L"\"%ls\" -f \"%ls\" %ls %ls %ls %ls --newline --progress-template \"%%(progress._percent_str)s|%%(progress._speed_str)s|%%(progress._eta_str)s|%%(progress.downloaded_bytes)s|%%(progress.total_bytes)s\" --no-playlist \"%ls\"",
         ytdlp_path,
         p->selection.format_id,
         extra_opts,
         ffmpeg_dir_arg,
         out_template,
+        path_report_arg,
         p->url
     );
 
-    HANDLE hReadPipe, hWritePipe;
+    HANDLE hReadPipe = NULL, hWritePipe = NULL;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
     if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
         download_fail(p, L"Boru hattı oluşturulamadı.");
@@ -877,7 +1018,8 @@ static DWORD WINAPI download_thread_main(LPVOID param)
 
     EnterCriticalSection(&g_engine_cs);
     BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
-        CREATE_NO_WINDOW | CREATE_SUSPENDED, child_env, NULL, &si, &pi);
+        CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+        child_env, NULL, &si, &pi);
     free(child_env);
 
     if (!ok) {
@@ -1001,15 +1143,24 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     if (hProc) CloseHandle(hProc);
     if (pi.hThread) CloseHandle(pi.hThread);
 
+    /* Nihai yol: önce yt-dlp'nin UTF-8 raporu, olmazsa stdout'tan tahmin. */
+    wchar_t wide_dest[MAX_PATH] = L"";
+    if (!was_cancelled && exit_code == 0) {
+        if (!read_last_utf8_line(final_path_file, wide_dest, MAX_PATH)) {
+            decode_path_bytes(last_destination, wide_dest, MAX_PATH);
+        }
+        if (wide_dest[0] != L'\0' && GetFileAttributesW(wide_dest) == INVALID_FILE_ATTRIBUTES) {
+            /* Rapor edilen yol diskte yoksa (silinmiş/yeniden adlandırılmış)
+               yanlış bilgi vermeyelim. */
+            wide_dest[0] = L'\0';
+        }
+    }
+    if (final_path_file[0] != L'\0') DeleteFileW(final_path_file);
+
     if (p->callback) {
         if (was_cancelled) {
             p->callback(L"cancelled", 0, 0, 0, 0, 0, L"", L"İndirme kullanıcı tarafından iptal edildi.", p->user_data);
         } else if (exit_code == 0) {
-            wchar_t wide_dest[MAX_PATH] = L"";
-            if (last_destination[0] != '\0') {
-                MultiByteToWideChar(CP_UTF8, 0, last_destination, -1, wide_dest, MAX_PATH - 1);
-                wide_dest[MAX_PATH - 1] = L'\0';
-            }
             p->callback(L"finished", 100.0, 0, 0, last_total, last_total, wide_dest, NULL, p->user_data);
         } else {
             wchar_t detail[512];
