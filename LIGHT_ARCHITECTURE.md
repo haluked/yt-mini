@@ -13,7 +13,7 @@ Bu dal (`light`), Python/PyInstaller çalışma zamanı şişkinliğini (bloat) 
 
 2. **Dosya Boyutu ve Performans:**
    * **Hedef:** < 1 MB (İdeal: 150 KB – 300 KB).
-   * **Gerçekleşen Boyut:** **~340 KB** (348.160 bayt).
+   * **Gerçekleşen Boyut:** **~341 KB** (349.184 bayt).
    * **Boşta RAM Ayak İzi:** < 10 MB (Python sürümündeki 60-70 MB'a kıyasla ~%85 tasarruf).
    * **Açılış Süresi:** < 15 ms (neredeyse anında).
 
