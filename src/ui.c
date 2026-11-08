@@ -540,10 +540,28 @@ static LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
     return CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
 }
 
+/* Kullanıcı URL'yi başında/sonunda boşlukla yapıştırırsa yt-dlp başarısız
+   oluyordu; doğrulamadan ve motora vermeden önce temizle. */
+static void trim_ws(wchar_t *s)
+{
+    if (!s) return;
+    wchar_t *p = s;
+    while (*p == L' ' || *p == L'\t' || *p == L'\r' || *p == L'\n') p++;
+    if (p != s) memmove(s, p, (wcslen(p) + 1) * sizeof(wchar_t));
+
+    size_t len = wcslen(s);
+    while (len > 0) {
+        wchar_t c = s[len - 1];
+        if (c == L' ' || c == L'\t' || c == L'\r' || c == L'\n') s[--len] = L'\0';
+        else break;
+    }
+}
+
 static void trigger_fetch(void)
 {
     wchar_t url[1024];
     GetWindowTextW(g_hEditUrl, url, 1023);
+    trim_ws(url);
     if (!is_valid_url(url)) {
         MessageBoxW(g_hWnd, L"Lütfen geçerli bir video veya ses bağlantısı girin.", L"Geçersiz Bağlantı", MB_OK | MB_ICONWARNING);
         return;
@@ -664,6 +682,7 @@ static void trigger_download(void)
 {
     wchar_t url[1024];
     GetWindowTextW(g_hEditUrl, url, 1023);
+    trim_ws(url);
     if (!is_valid_url(url)) {
         MessageBoxW(g_hWnd, L"Lütfen geçerli bir video veya ses bağlantısı girin.", L"Geçersiz Bağlantı", MB_OK | MB_ICONWARNING);
         return;
@@ -805,7 +824,6 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             }
             return 0;
         }
-
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
@@ -900,6 +918,10 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             tme.dwFlags = TME_LEAVE;
             tme.hwndTrack = hWnd;
             TrackMouseEvent(&tme);
+
+            /* Fare üstündeyken kapanmayı geciktir: her hareket sayacı sıfırlar,
+               fare durunca 4 sn sonra kapanır (hiç kapanmama riski yok). */
+            SetTimer(hWnd, 1, 4000, NULL);
             return 0;
         }
 
@@ -912,6 +934,8 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                 g_toast_state.close_hover = 0;
                 InvalidateRect(hWnd, &g_toast_state.rc_close, FALSE);
             }
+            /* Fare ayrıldı: kısa bir süre sonra yine kapan. */
+            SetTimer(hWnd, 1, 2500, NULL);
             return 0;
         }
 
@@ -1579,9 +1603,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
 
             PlatformInfo plat = detect_platform(start);
-            int is_yt = (plat.type == PLATFORM_YOUTUBE ||
-                         wcsstr(start, L"youtube.com/") != NULL ||
-                         wcsstr(start, L"youtu.be/") != NULL);
+            int is_yt = (plat.type == PLATFORM_YOUTUBE);
 
             if (start[0] == L'\0' || !is_valid_url(start)) break;
             if (!is_yt) break;
@@ -1674,6 +1696,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             ShowWindow(hWnd, SW_RESTORE);
             SetForegroundWindow(hWnd);
             SetWindowTextW(g_hEditUrl, url);
+            /* Motor meşgulse başlığı "bilgiler alınıyor" diye bırakma:
+               fetch hiç başlamayacağı için öyle asılı kalıyordu. */
+            if (g_is_fetching || engine_is_busy()) {
+                g_auto_download_after_fetch = 0;
+                SetWindowTextW(g_hStaticStatus,
+                    L"Motor meşgul; işlem bitince 'Bilgi Getir' ile bu bağlantıyı çekebilirsiniz.");
+                return TRUE;
+            }
             g_has_meta = 0;
             g_selection_valid = 0;
             SetWindowTextW(g_hStaticTitle, L"Bağlantı aktarıldı, bilgiler alınıyor...");

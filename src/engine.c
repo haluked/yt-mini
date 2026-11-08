@@ -35,12 +35,16 @@ void engine_cleanup(void)
     if (g_workers_done) {
         WaitForSingleObject(g_workers_done, 5000);
     }
-    if (InterlockedCompareExchange(&g_active_workers, 0, 0) == 0) {
+
+    /* Hâlâ çalışan worker varsa ne kritik bölümü ne de event'i kapat:
+       worker_finished() kapanmış handle'a SetEvent çağırabilirdi. */
+    int idle = (InterlockedCompareExchange(&g_active_workers, 0, 0) == 0);
+    if (idle) {
         DeleteCriticalSection(&g_engine_cs);
-    }
-    if (g_workers_done) {
-        CloseHandle(g_workers_done);
-        g_workers_done = NULL;
+        if (g_workers_done) {
+            CloseHandle(g_workers_done);
+            g_workers_done = NULL;
+        }
     }
 }
 
@@ -192,6 +196,35 @@ static int utf8_to_wide_bounded(const char *src, int src_len, wchar_t *dst, size
     return 1;
 }
 
+/* UTF-8 metni sabit genişlikli alana sığdırır. MultiByteToWideChar, hedef
+   tampon küçükse HİÇBİR ŞEY yazmaz (0 döner); bu yüzden uzun başlıklarda
+   alan boş kalıyordu. Bayt sınırını karakter sınırına hizalayıp kısaltıyoruz. */
+static void utf8_to_wide_field(const char *src, wchar_t *dst, size_t wide_cap)
+{
+    if (!dst || wide_cap < 2) {
+        if (dst && wide_cap) dst[0] = L'\0';
+        return;
+    }
+    dst[0] = L'\0';
+    if (!src) return;
+
+    int bytes = (int)strlen(src);
+    if (bytes <= 0) return;
+
+    int limit = (int)(wide_cap - 1);
+    if (limit > bytes) limit = bytes;
+    /* Çok baytlı bir karakterin ortasında kesmemek için geri sar. */
+    while (limit > 0 && ((unsigned char)src[limit] & 0xC0) == 0x80) limit--;
+    if (limit <= 0) return;
+
+    int n = MultiByteToWideChar(CP_UTF8, 0, src, limit, dst, (int)(wide_cap - 1));
+    if (n <= 0) {
+        dst[0] = L'\0';
+        return;
+    }
+    dst[n] = L'\0';
+}
+
 static void extract_last_error(const char *buf, wchar_t *out, size_t max_len)
 {
     if (!out || max_len == 0) return;
@@ -222,7 +255,7 @@ static int ensure_directory(const wchar_t *dir)
     return rc == ERROR_SUCCESS || rc == ERROR_ALREADY_EXISTS || rc == ERROR_FILE_EXISTS;
 }
 
-/* Bir pipe'ı EOF'a kadar okuyup son `cap - 1` baytı buf'a yazar.
+/* Bir pipe'ı EOF'a kadar okuyup İLK `cap - 1` baytı buf'a yazar.
    Tampon dolduktan sonra da okumaya devam eder: çocuk süreç stderr'e yazarken
    bloke olmasın (aksi halde iki pipe'lı kurulumda kilitlenme olur). */
 static void drain_pipe_blocking(HANDLE pipe, char *buf, size_t cap, size_t *out_len)
@@ -247,17 +280,50 @@ static void drain_pipe_blocking(HANDLE pipe, char *buf, size_t cap, size_t *out_
     if (out_len) *out_len = len;
 }
 
+/* yt-dlp ayrı video/ses akışlarını ayrı ayrı indirdiği için tek bir "son
+   hedef" yeterli değil: birleştirme hatasında birden fazla ara dosya kalabilir.
+   Son 4 hedefi tut (normalde en fazla 2 tane olur). */
+#define MAX_TRACKED_DESTS 4
+#define DEST_BUF_LEN (MAX_PATH * 2)
+
+static void add_destination(char (*dests)[DEST_BUF_LEN], int *count, const char *src, size_t len)
+{
+    if (!dests || !count || !src) return;
+
+    if (*count >= MAX_TRACKED_DESTS) {
+        for (int i = 1; i < MAX_TRACKED_DESTS; i++) {
+            memcpy(dests[i - 1], dests[i], DEST_BUF_LEN);
+        }
+        (*count)--;
+    }
+    if (len == (size_t)-1) len = strlen(src);
+    if (len >= DEST_BUF_LEN) len = DEST_BUF_LEN - 1;
+    memcpy(dests[*count], src, len);
+    dests[*count][len] = '\0';
+    (*count)++;
+}
+
+static int path_is_fresh_file(const wchar_t *path, const FILETIME *since)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (!path || !path[0]) return 0;
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &fad)) return 0;
+    if (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return 0;
+    return CompareFileTime(&fad.ftLastWriteTime, since) >= 0;
+}
+
 typedef struct {
     HANDLE pipe;
-    char *buf;
-    size_t cap;
+    char buf[4096];
     size_t len;
 } StderrDrainParams;
 
-/* Aynı anda tek fetch çalıştığı için (engine durumu) bu tamponlar statiktir;
-   thread join zaman aşımına uğrasa bile ölü stack'e yazma riski olmaz. */
-static char g_drain_buf[4096];
-static StderrDrainParams g_drain_params;
+static DWORD WINAPI stderr_drain_thread(LPVOID param)
+{
+    StderrDrainParams *d = (StderrDrainParams*)param;
+    drain_pipe_blocking(d->pipe, d->buf, sizeof(d->buf), &d->len);
+    return 0;
+}
 
 /* yt-dlp'nin --print-to-file çıktısı UTF-8'dir; dil/kod sayfasından bağımsız
    olduğu için nihai dosya yolunu buradan okuyoruz. Dosyanın son boş olmayan
@@ -273,6 +339,14 @@ static int read_last_utf8_line(const wchar_t *path, wchar_t *out, size_t max_len
     if (h == INVALID_HANDLE_VALUE) return 0;
 
     char buf[8192];
+    LARGE_INTEGER fsize;
+    if (GetFileSizeEx(h, &fsize)) {
+        LARGE_INTEGER pos;
+        pos.QuadPart = fsize.QuadPart > (LONGLONG)(sizeof(buf) - 1)
+                     ? fsize.QuadPart - (LONGLONG)(sizeof(buf) - 1) : 0;
+        SetFilePointerEx(h, pos, NULL, FILE_BEGIN);
+    }
+
     DWORD total = 0, got = 0;
     while (total < sizeof(buf) - 1) {
         DWORD want = (DWORD)(sizeof(buf) - 1 - total);
@@ -307,13 +381,6 @@ static void decode_path_bytes(const char *src, wchar_t *dst, size_t max_len)
     if (n <= 0) n = MultiByteToWideChar(CP_ACP, 0, src, -1, dst, (int)(max_len - 1));
     if (n <= 0) dst[0] = L'\0';
     else dst[n] = L'\0';
-}
-
-static DWORD WINAPI stderr_drain_thread(LPVOID param)
-{
-    StderrDrainParams *d = (StderrDrainParams*)param;
-    drain_pipe_blocking(d->pipe, d->buf, d->cap, &d->len);
-    return 0;
 }
 
 /* yt-dlp bir Python programıdır. PYTHONUTF8=1 Python'un kendi dosya/G/Ç
@@ -356,7 +423,6 @@ int engine_ffmpeg_can_encode_mp3(void)
     if (cached >= 0) return cached;
 
     wchar_t ffmpeg_path[MAX_PATH];
-    cached = 0;
     if (!engine_find_ffmpeg(ffmpeg_path, MAX_PATH)) return 0;
 
     wchar_t cmd_line[MAX_PATH + 64];
@@ -390,27 +456,58 @@ int engine_ffmpeg_can_encode_mp3(void)
         return 0;
     }
 
-    /* Çıktı büyük olabilir; tamponu doldursak bile okumaya devam et. */
+    /* Çıktı büyük olabilir; tamponu doldursak bile okumaya devam et.
+       ffmpeg takılırsa uygulama açılışta donmasın diye toplam süre sınırlı. */
     char out[32768];
     size_t len = 0;
     DWORD got = 0;
     char chunk[4096];
-    while (ReadFile(hReadPipe, chunk, sizeof(chunk), &got, NULL) && got > 0) {
-        if (len + got < sizeof(out)) {
-            memcpy(out + len, chunk, got);
-            len += got;
+    DWORD start_tick = GetTickCount();
+    int finished = 0;
+
+    for (;;) {
+        DWORD avail = 0;
+        if (PeekNamedPipe(hReadPipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+            DWORD want = avail > (DWORD)sizeof(chunk) ? (DWORD)sizeof(chunk) : avail;
+            if (!ReadFile(hReadPipe, chunk, want, &got, NULL) || got == 0) break;
+            if (len + got < sizeof(out)) {
+                memcpy(out + len, chunk, got);
+                len += got;
+            }
+            continue;
+        }
+        if (WaitForSingleObject(pi.hProcess, 20) == WAIT_OBJECT_0) {
+            /* Süreç bitti: kalan baytları son kez boşalt. */
+            while (PeekNamedPipe(hReadPipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+                DWORD want = avail > (DWORD)sizeof(chunk) ? (DWORD)sizeof(chunk) : avail;
+                if (!ReadFile(hReadPipe, chunk, want, &got, NULL) || got == 0) break;
+                if (len + got < sizeof(out)) {
+                    memcpy(out + len, chunk, got);
+                    len += got;
+                }
+            }
+            finished = 1;
+            break;
+        }
+        if (GetTickCount() - start_tick > 5000) {
+            TerminateProcess(pi.hProcess, 1);
+            break;
         }
     }
     out[len] = '\0';
+    WaitForSingleObject(pi.hProcess, 2000);
     CloseHandle(hReadPipe);
-
-    WaitForSingleObject(pi.hProcess, 10000);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
 
-    if (strstr(out, "libmp3lame") || strstr(out, "libshine") || strstr(out, "mp3_mf"))
-        cached = 1;
-    return cached;
+    /* Sonucu yalnızca ffmpeg gerçekten çalışıp çıktı verdiyse önbelleğe al;
+       yoksa geçici bir hata (AV kilidi vb.) MP3'ü oturum boyunca kapatırdı. */
+    if (finished) {
+        cached = (strstr(out, "libmp3lame") || strstr(out, "libshine") ||
+                  strstr(out, "mp3_mf")) ? 1 : 0;
+        return cached;
+    }
+    return 0;
 }
 
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len)
@@ -461,8 +558,8 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
 
     cJSON *title_item = cJSON_GetObjectItem(root, "title");
     if (cJSON_IsString(title_item) && title_item->valuestring) {
-        MultiByteToWideChar(CP_UTF8, 0, title_item->valuestring, -1, meta->title, 255);
-        meta->title[255] = L'\0';
+        utf8_to_wide_field(title_item->valuestring, meta->title,
+                           sizeof(meta->title) / sizeof(wchar_t));
     }
 
     cJSON *dur_item = cJSON_GetObjectItem(root, "duration");
@@ -473,8 +570,8 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
 
     cJSON *thumb_item = cJSON_GetObjectItem(root, "thumbnail");
     if (cJSON_IsString(thumb_item) && thumb_item->valuestring) {
-        MultiByteToWideChar(CP_UTF8, 0, thumb_item->valuestring, -1, meta->thumbnail_url, 511);
-        meta->thumbnail_url[511] = L'\0';
+        utf8_to_wide_field(thumb_item->valuestring, meta->thumbnail_url,
+                           sizeof(meta->thumbnail_url) / sizeof(wchar_t));
     }
 
     cJSON *formats_array = cJSON_GetObjectItem(root, "formats");
@@ -708,26 +805,31 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
 
     /* stderr ayrı bir thread'de sürekli boşaltılır. Aksi halde çocuk 64 KB'tan
        fazla hata/uyarı yazarsa stderr pipe'ı dolar, çocuk bloke olur ve biz
-       stdout'ta EOF beklerken uygulama kilitlenirdi. */
+       stdout'ta EOF beklerken uygulama kilitlenirdi. Parametreler heap'te:
+       join zaman aşımına uğrarsa thread'in ölü stack'e yazmasını engeller. */
     char err_buf[4096];
     err_buf[0] = '\0';
-    g_drain_buf[0] = '\0';
-    g_drain_params.pipe = hErrReadPipe;
-    g_drain_params.buf = g_drain_buf;
-    g_drain_params.cap = sizeof(g_drain_buf);
-    g_drain_params.len = 0;
-    HANDLE hDrainThread = CreateThread(NULL, 0, stderr_drain_thread, &g_drain_params, 0, NULL);
+    StderrDrainParams *drain = (StderrDrainParams*)calloc(1, sizeof(StderrDrainParams));
+    HANDLE hDrainThread = NULL;
+    if (drain) {
+        drain->pipe = hErrReadPipe;
+        hDrainThread = CreateThread(NULL, 0, stderr_drain_thread, drain, 0, NULL);
+    }
 
     while (ReadFile(hReadPipe, chunk, sizeof(chunk), &bytes_read, NULL) && bytes_read > 0) {
+        if (truncated) continue;   /* zaten taştı: boru tıkanmasın diye sadece boşalt */
+
         if (buf_len + bytes_read + 1 >= buf_capacity) {
-            buf_capacity = (buf_capacity * 2) + bytes_read + 1;
-            char *new_buf = (char*)realloc(json_buf, buf_capacity);
+            /* Kapasiteyi SADECE realloc başarılıysa büyüt. Aksi halde eski
+               tampon küçük kalırken kontrol geçer ve memcpy taşar. */
+            size_t new_cap = (buf_capacity * 2) + bytes_read + 1;
+            char *new_buf = (char*)realloc(json_buf, new_cap);
             if (!new_buf) {
-                /* Boru tıkanmasın diye okumaya devam et, ama veriyi at. */
                 truncated = 1;
                 continue;
             }
             json_buf = new_buf;
+            buf_capacity = new_cap;
         }
         memcpy(json_buf + buf_len, chunk, bytes_read);
         buf_len += bytes_read;
@@ -740,14 +842,23 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     /* Süreç bitti: stderr yazan thread EOF alıp döner. Thread açılamadıysa
        (çok nadir) aynı işi burada yap. */
     if (hDrainThread) {
-        WaitForSingleObject(hDrainThread, 10000);
+        DWORD join_res = WaitForSingleObject(hDrainThread, 10000);
         CloseHandle(hDrainThread);
-        memcpy(err_buf, g_drain_buf, sizeof(err_buf));
-        err_buf[sizeof(err_buf) - 1] = '\0';
+        if (join_res == WAIT_OBJECT_0) {
+            memcpy(err_buf, drain->buf, sizeof(err_buf));
+            err_buf[sizeof(err_buf) - 1] = '\0';
+            free(drain);
+            CloseHandle(hErrReadPipe);
+        } else {
+            /* Thread hâlâ çalışıyor olabilir: handle'ları ve tamponu bilinçli
+               sızdır (süreç çıkışında temizlenir) ki ölü belleğe yazmasın. */
+            hErrReadPipe = NULL;
+        }
     } else {
+        if (drain) free(drain);
         drain_pipe_blocking(hErrReadPipe, err_buf, sizeof(err_buf), NULL);
+        CloseHandle(hErrReadPipe);
     }
-    CloseHandle(hErrReadPipe);
 
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
@@ -1000,9 +1111,12 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         *dst = L'\0';
     }
 
-    wchar_t out_template[MAX_PATH + 64];
+    /* Klasör adı '%' içeriyorsa kaçış iki katına çıkar (≤ 2*MAX_PATH).
+       Tamponu buna göre büyüt ve her durumda NUL garantile. */
+    wchar_t out_template[MAX_PATH * 2 + 128];
     _snwprintf(out_template, sizeof(out_template)/sizeof(wchar_t),
         L"-o \"%ls\\%%(title).150B [%%(id)s].%%(ext)s\"", dir_escaped);
+    out_template[(sizeof(out_template)/sizeof(wchar_t)) - 1] = L'\0';
 
     /* Nihai dosya yolunu metinden tahmin etmek yerine yt-dlp'ye UTF-8 bir
        dosyaya yazdırıyoruz: stdout kod sayfası bozuk olabiliyor (ör. cp1254),
@@ -1012,7 +1126,10 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     wchar_t final_path_arg[MAX_PATH * 2] = L"";
     {
         wchar_t tmp_dir[MAX_PATH];
-        if (GetTempPathW(MAX_PATH, tmp_dir) > 0) {
+        tmp_dir[0] = L'\0';
+        /* GetTempPathW tampon küçükse 0 DEĞİL, gereken boyutu döndürür. */
+        DWORD tmp_len = GetTempPathW(MAX_PATH, tmp_dir);
+        if (tmp_len > 0 && tmp_len < MAX_PATH) {
             _snwprintf(final_path_file, MAX_PATH, L"%lsffdlp_finalpath_%lu.txt",
                 tmp_dir, (unsigned long)GetCurrentProcessId());
             final_path_file[MAX_PATH - 1] = L'\0';
@@ -1071,6 +1188,7 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         path_report_arg,
         p->url
     );
+    cmd_line[4095] = L'\0';
 
     HANDLE hReadPipe = NULL, hWritePipe = NULL;
     SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
@@ -1141,6 +1259,12 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     DWORD bytes_read = 0;
     char last_error[768] = "";
     char last_destination[MAX_PATH * 2] = "";
+    /* Yalnızca [download] satırlarından gelen, İNDİRİLEN kaynak dosyalar.
+       Postprocessing hatalarında silinecek adaylar bunlardır; last_destination
+       ise PP çıktısıyla (ör. X.mp3) ezilebildiği için temizlikte kullanılmaz. */
+    char download_destinations[MAX_TRACKED_DESTS][DEST_BUF_LEN];
+    int download_dest_count = 0;
+    memset(download_destinations, 0, sizeof(download_destinations));
 
     double last_percent = 0.0;
     double last_speed = 0.0;
@@ -1161,6 +1285,8 @@ static DWORD WINAPI download_thread_main(LPVOID param)
                 } else if (strncmp(trimmed, "[download] Destination: ", 24) == 0) {
                     strncpy(last_destination, trimmed + 24, sizeof(last_destination) - 1);
                     last_destination[sizeof(last_destination) - 1] = '\0';
+                    add_destination(download_destinations, &download_dest_count,
+                                    trimmed + 24, (size_t)-1);
                 } else if (strstr(trimmed, "Merging formats into \"") != NULL) {
                     const char *p_merge = strstr(trimmed, "Merging formats into \"") + 22;
                     strncpy(last_destination, p_merge, sizeof(last_destination) - 1);
@@ -1185,6 +1311,8 @@ static DWORD WINAPI download_thread_main(LPVOID param)
                     if (plen > 0 && plen < (int)sizeof(last_destination)) {
                         strncpy(last_destination, p_start, plen);
                         last_destination[plen] = '\0';
+                        add_destination(download_destinations, &download_dest_count,
+                                        p_start, (size_t)plen);
                     }
                 } else if (strchr(line_buf, '|')) {
                     parse_progress_line(line_buf, &last_percent, &last_speed, &last_eta, &last_downloaded, &last_total);
@@ -1225,17 +1353,17 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     if (hProc) CloseHandle(hProc);
     if (pi.hThread) CloseHandle(pi.hThread);
 
-    /* Postprocessing başarısız olduysa yt-dlp indirdiği ara dosyayı bırakır
-       (ör. MP3 dönüşümü patladığında .webm). Bu çalıştırmada oluştuğunu
-       zaman damgasından doğrulayıp temizle; kullanıcının eski dosyalarına
-       dokunma. */
-    if (!was_cancelled && exit_code != 0 && last_destination[0] != '\0') {
-        wchar_t leftover[MAX_PATH];
-        decode_path_bytes(last_destination, leftover, MAX_PATH);
-        WIN32_FILE_ATTRIBUTE_DATA fad;
-        if (leftover[0] && GetFileAttributesExW(leftover, GetFileExInfoStandard, &fad) &&
-            CompareFileTime(&fad.ftLastWriteTime, &dl_start_time) >= 0) {
-            DeleteFileW(leftover);
+    /* Postprocessing başarısız olduysa yt-dlp indirdiği ara dosyaları bırakır
+       (ör. birleştirme patladığında video/ses akışları). Yalnızca [download]
+       satırlarından gelen KAYNAK dosyaları, bu çalıştırmada oluştuklarını
+       zaman damgasından doğrulayarak temizle. Nihai/PP çıktısı silinmez. */
+    if (!was_cancelled && exit_code != 0) {
+        for (int i = 0; i < download_dest_count; i++) {
+            wchar_t leftover[MAX_PATH];
+            decode_path_bytes(download_destinations[i], leftover, MAX_PATH);
+            if (path_is_fresh_file(leftover, &dl_start_time)) {
+                DeleteFileW(leftover);
+            }
         }
     }
 
