@@ -152,6 +152,6 @@ iptali tetikler. Sahip pencere modal sırasında devre dışıdır.
 - Palet ve çizim ilkelleri: `src/gb_ui.h`, `src/gb_ui.c`.
 - Ana pencere, yerleşim ve durum yönetimi: `src/ui.c`.
 - Ölçekleme: `gb_scale()` / `S()` — 96 DPI taban, Per-Monitor V2.
-- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~337 KB.
+- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~338 KB.
 - Yeni bileşen eklerken: rengi paletten seç, 2 px çerçeve kullan, beş durumu
   (normal, hover, basılı, pasif, odak) çiz, metni Türkçe tut.

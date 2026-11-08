@@ -23,6 +23,8 @@ static void show_cli_help(void)
         L"  ff-dlp-viewer.exe --version         -> Sürüm bilgisini gösterir.\n"
         L"  ff-dlp-viewer.exe --url <URL>       -> Verilen URL ile uygulamayı başlatır.\n"
         L"  ff-dlp-viewer.exe --url=<URL>       -> Aynı işi tek argümanla yapar.\n\n"
+        L"Kapatma (X): pencereyi sistem tepsisine gizler.\n"
+        L"Tam çıkış: tepsi simgesine sağ tık -> Çıkış.\n"
         L"Uygulama zaten açıksa yeni pencere açılmaz; URL mevcut pencereye aktarılır.\n",
         L"ff-dlp-viewer Yardım",
         MB_OK | MB_ICONINFORMATION

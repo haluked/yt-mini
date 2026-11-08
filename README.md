@@ -4,7 +4,7 @@
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
-[![Binary Size](https://img.shields.io/badge/Binary_Size-~337_KB-brightgreen?style=flat-square)](#)
+[![Binary Size](https://img.shields.io/badge/Binary_Size-~338_KB-brightgreen?style=flat-square)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-8CBE9C?style=flat-square)](LICENSE)
 
 ---
@@ -13,7 +13,7 @@
 
 **ff-dlp-viewer**, Python çalışma zamanı, PyInstaller veya Electron gibi ağır bağımlılıkları tamamen ortadan kaldırarak saf C11 ve yerel Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`) kullanılarak sıfırdan yeniden yazılmıştır.
 
-Nihai çalıştırılabilir dosya boyutu **yalnızca ~337 KB** olup, bellek tüketimi 10-15 MB civarındadır.
+Nihai çalıştırılabilir dosya boyutu **yalnızca ~338 KB** olup, bellek tüketimi 10-15 MB civarındadır.
 
 ---
 
@@ -47,6 +47,12 @@ Nihai çalıştırılabilir dosya boyutu **yalnızca ~337 KB** olup, bellek tük
   - Seçilen indirme dizini `HKCU\Software\ff-dlp-viewer\DownloadDir` altında saklanır ve bir sonraki açılışta korunur.
   - Modern COM `IFileOpenDialog` ile klasör seçimi.
 
+- **Steam/WhatsApp Tarzı Tepsi Yaşam Döngüsü**:
+  - `X` uygulamayı kapatmaz; pencereyi sistem tepsisine gizler ve arka planda çalışmaya devam eder.
+  - Tam çıkış: tepsi simgesine sağ tık → `Çıkış`. İndirme sürüyorsa önce onay ister.
+  - Kısayol tekrar açılırsa yeni kopya başlatılmaz; gizli pencere öne getirilir.
+  - İlk kapatmada bir kerelik "arka planda çalışıyor" bilgilendirmesi gösterilir.
+
 - **Tekil Örnek (Single Instance) ve Komut Satırı Entegrasyonu**:
   - Named Mutex (`Local\ff-dlp-viewer-light`) ile aynı anda birden fazla kopya açılmaz.
   - `--url <URL>` veya `--url=URL` ile ikinci bir örnek çağrıldığında bağlantı açık olan pencereye `WM_COPYDATA` ile aktarılır ve pencere öne getirilir.
@@ -58,7 +64,7 @@ Nihai çalıştırılabilir dosya boyutu **yalnızca ~337 KB** olup, bellek tük
 | Kısayol | Eylem |
 |---|---|
 | `Enter` | URL kutusundayken indirmeyi başlatır (bilgi çekilmemişse önce bilgiyi alıp indirir). |
-| `Esc` | Aktif bir işlem varsa iptal eder, yoksa pencereyi kapatır. |
+| `Esc` | Aktif bir işlem varsa iptal eder, yoksa pencereyi tepsiye gizler. |
 | `Tab` / `Shift+Tab` | Arayüz kontrolleri arasında sırayla gezinir. |
 | `Space` | Odaklanan butona tıklar veya radyo/onay kutusunu değiştirir. |
 

@@ -123,6 +123,7 @@ static int g_has_meta = 0;
 static int g_is_fetching = 0;
 static int g_is_downloading = 0;
 static int g_mp3_available = 0;
+static int g_tray_hint_shown = 0;
 static int g_auto_download_after_fetch = 0;
 static int g_selection_valid = 0;
 static wchar_t g_last_fetched_url[1024] = L"";
@@ -193,6 +194,7 @@ static void apply_control_fonts(void);
 static void update_folder_label(void);
 static void save_download_dir(void);
 static void refresh_dropdown_labels(void);
+static void tray_balloon(const wchar_t *title, const wchar_t *text);
 static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wchar_t *url);
 static void apply_toast_to_main(ToastState *state, int auto_start_download);
 static void trigger_autofetch(const wchar_t *url);
@@ -473,6 +475,7 @@ static void fallback_download_dir(void)
 static void load_settings(void)
 {
     g_download_dir[0] = L'\0';
+    g_tray_hint_shown = 0;
 
     HKEY key;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\ff-dlp-viewer", 0, KEY_READ, &key) == ERROR_SUCCESS) {
@@ -487,6 +490,17 @@ static void load_settings(void)
             }
         } else {
             g_download_dir[0] = L'\0';
+        }
+
+        {
+            DWORD hint = 0;
+            DWORD hint_len = sizeof(hint);
+            DWORD hint_type = 0;
+            if (RegQueryValueExW(key, L"TrayHintShown", NULL, &hint_type,
+                                 (LPBYTE)&hint, &hint_len) == ERROR_SUCCESS &&
+                hint_type == REG_DWORD) {
+                g_tray_hint_shown = hint ? 1 : 0;
+            }
         }
         RegCloseKey(key);
     }
@@ -505,6 +519,32 @@ static void save_download_dir(void)
         RegSetValueExW(key, L"DownloadDir", 0, REG_SZ, (const BYTE*)g_download_dir,
                        (DWORD)((wcslen(g_download_dir) + 1) * sizeof(wchar_t)));
         RegCloseKey(key);
+    }
+}
+
+static void save_tray_hint_shown(void)
+{
+    HKEY key;
+    DWORD value = 1;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\ff-dlp-viewer", 0, NULL, 0,
+                        KEY_WRITE, NULL, &key, NULL) == ERROR_SUCCESS) {
+        RegSetValueExW(key, L"TrayHintShown", 0, REG_DWORD,
+                       (const BYTE*)&value, sizeof(value));
+        RegCloseKey(key);
+    }
+}
+
+/* X'e basınca uygulama kapanmaz; Steam/WhatsApp gibi tepsiye gizlenir. */
+static void hide_to_tray(HWND hWnd)
+{
+    ShowWindow(hWnd, SW_HIDE);
+
+    if (!g_tray_hint_shown) {
+        g_tray_hint_shown = 1;
+        save_tray_hint_shown();
+        tray_balloon(L"Arka planda çalışıyor",
+                     L"Tamamen kapatmak için tepsi simgesine sağ tıklayıp "
+                     L"\"Çıkış\" seçeneğini kullanın.");
     }
 }
 
@@ -1861,8 +1901,17 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             } else if (wmId == ID_TRAY_CHECK_UPDATE) {
                 bootstrapper_update_ytdlp(hWnd);
             } else if (wmId == ID_TRAY_EXIT) {
-                engine_cancel();
-                DestroyWindow(hWnd);
+                int can_exit = 1;
+                if (engine_is_busy()) {
+                    int res = gb_message_box(hWnd, L"ÇIKIŞ",
+                        L"İndirme işlemi devam ediyor.\nYine de çıkılsın mı?",
+                        MB_YESNO | MB_ICONQUESTION);
+                    can_exit = (res == IDYES);
+                }
+                if (can_exit) {
+                    engine_cancel();
+                    DestroyWindow(hWnd);
+                }
             } else if (wmId == IDOK) {
                 /* Enter: odak nerede olursa olsun indirmeyi başlat. */
                 trigger_download();
@@ -2193,20 +2242,9 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
 
         case WM_CLOSE: {
-            if (engine_is_busy()) {
-                int res = gb_message_box(hWnd,
-                    L"İNDİRME SÜRÜYOR",
-                    L"İndirme işlemi devam ediyor.\nArka planda devam etmesi için sistem tepsisine küçültülsün mü?",
-                    MB_YESNOCANCEL | MB_ICONQUESTION);
-                if (res == IDYES) {
-                    ShowWindow(hWnd, SW_HIDE);
-                    return 0;
-                } else if (res == IDCANCEL) {
-                    return 0;
-                }
-                engine_cancel();
-            }
-            DestroyWindow(hWnd);
+            /* Steam/WhatsApp davranışı: kapatma = tepsiye gizle.
+               Gerçek çıkış yalnızca tepsi menüsünden yapılır. */
+            hide_to_tray(hWnd);
             return 0;
         }
 
