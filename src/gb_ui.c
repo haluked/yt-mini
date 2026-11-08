@@ -823,6 +823,9 @@ static void gb_msg_paint(HWND hWnd)
 static LRESULT CALLBACK GbMsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
+        case WM_ERASEBKGND:
+            return 1;
+
         case WM_PAINT:
             gb_msg_paint(hWnd);
             return 0;
@@ -990,7 +993,7 @@ int gb_message_box(HWND owner, const wchar_t *title, const wchar_t *text, UINT f
     }
 
     dlg = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        0,
         GB_MSG_CLASS, L"",
         WS_POPUP,
         x, y, win_w, win_h,
