@@ -109,6 +109,11 @@ typedef struct {
 static GbTrackedButton g_tracked[GB_MAX_TRACKED];
 static int g_tracked_count = 0;
 
+/* URL kutusunun özel imleci ve seçim rengi */
+#define EDIT_CARET_TIMER 7
+static int g_edit_focused = 0;
+static int g_edit_caret_visible = 1;
+
 
 static HFONT g_fontTitle = NULL;
 static HFONT g_fontBold = NULL;
@@ -779,20 +784,173 @@ static void trigger_autofetch(const wchar_t *url)
     }
 }
 
+/* ------------------------------------------------------------------
+   URL kutusu: özel imleç ve GB renkli metin seçimi
+   Yerel EDIT denetimi metin düzenlemeyi yapar; görsel katmanı biz çizeriz.
+   ------------------------------------------------------------------ */
+static int edit_char_x(HWND hWnd, int index, int *x)
+{
+    LRESULT pos;
+    if (index < 0) return 0;
+    pos = SendMessageW(hWnd, EM_POSFROMCHAR, (WPARAM)index, 0);
+    if (pos == -1) return 0;
+    *x = (int)(short)LOWORD(pos);
+    return 1;
+}
+
+static void edit_start_blink(HWND hWnd)
+{
+    UINT ms = GetCaretBlinkTime();
+    if (ms == (UINT)-1 || ms < 200 || ms > 2000) ms = 530;
+    g_edit_caret_visible = 1;
+    KillTimer(hWnd, EDIT_CARET_TIMER);
+    SetTimer(hWnd, EDIT_CARET_TIMER, ms, NULL);
+}
+
+static void edit_after_edit(HWND hWnd)
+{
+    HideCaret(hWnd);
+    edit_start_blink(hWnd);
+    InvalidateRect(hWnd, NULL, FALSE);
+}
+
+static void edit_draw_overlay(HWND hWnd)
+{
+    HDC dc;
+    RECT rc, sel;
+    TEXTMETRICW tm;
+    SIZE one;
+    HFONT font;
+    HGDIOBJ old_font;
+    DWORD sel_start = 0, sel_end = 0;
+    wchar_t text[2048];
+    POINT caret;
+    int len, x0 = 0, x1 = 0, has_sel, cx, caret_w;
+
+    if (!g_edit_focused || !GetCaretPos(&caret)) return;
+    if (!GetClientRect(hWnd, &rc)) return;
+
+    dc = GetDC(hWnd);
+    font = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0);
+    if (!font) font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    old_font = SelectObject(dc, font);
+    if (!GetTextMetricsW(dc, &tm)) {
+        SelectObject(dc, old_font);
+        ReleaseDC(hWnd, dc);
+        return;
+    }
+    if (!GetTextExtentPoint32W(dc, L"0", 1, &one)) one.cx = tm.tmAveCharWidth;
+
+    SendMessageW(hWnd, EM_GETSEL, (WPARAM)&sel_start, (LPARAM)&sel_end);
+    len = GetWindowTextW(hWnd, text, 2047);
+    if (len < 0) len = 0;
+    if (sel_start > (DWORD)len) sel_start = (DWORD)len;
+    if (sel_end > (DWORD)len) sel_end = (DWORD)len;
+    has_sel = (sel_end > sel_start);
+
+    if (has_sel) {
+        if (!edit_char_x(hWnd, (int)sel_start, &x0)) x0 = rc.left;
+        if ((int)sel_end < len) {
+            if (!edit_char_x(hWnd, (int)sel_end, &x1)) x1 = x0;
+        } else if (len > 0) {
+            if (edit_char_x(hWnd, len - 1, &x1)) x1 += one.cx;
+            else x1 = x0;
+        } else {
+            x1 = x0;
+        }
+
+        sel.left = x0;
+        sel.right = x1;
+        sel.top = caret.y;
+        sel.bottom = caret.y + tm.tmHeight;
+        if (sel.left < rc.left) sel.left = rc.left;
+        if (sel.right > rc.right) sel.right = rc.right;
+        if (sel.right > sel.left) {
+            gb_fill(dc, &sel, GB_DARKEST);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, GB_LIGHTEST);
+            TextOutW(dc, x0, caret.y, text + sel_start, (int)(sel_end - sel_start));
+        }
+    }
+
+    if (g_edit_caret_visible) {
+        RECT cr;
+        caret_w = S(2);
+        if (caret_w < 2) caret_w = 2;
+        cx = caret.x;
+        if (cx < rc.left) cx = rc.left;
+        if (cx + caret_w > rc.right) cx = rc.right - caret_w;
+        cr.left = cx;
+        cr.top = caret.y;
+        cr.right = cx + caret_w;
+        cr.bottom = caret.y + tm.tmHeight;
+        gb_fill(dc, &cr, has_sel ? GB_LIGHTEST : GB_DARKEST);
+    }
+
+    SelectObject(dc, old_font);
+    ReleaseDC(hWnd, dc);
+}
+
 static LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    LRESULT res;
+
+    if (msg == WM_KEYDOWN && wParam == VK_RETURN) {
+        trigger_download();
+        return 0;
+    }
+
+    if (msg == WM_TIMER && wParam == EDIT_CARET_TIMER) {
+        g_edit_caret_visible = !g_edit_caret_visible;
+        HideCaret(hWnd);
+        InvalidateRect(hWnd, NULL, FALSE);
+        return 0;
+    }
+
+    if (msg == WM_SETFOCUS) {
+        res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
+        g_edit_focused = 1;
+        HideCaret(hWnd);
+        edit_start_blink(hWnd);
+        InvalidateRect(hWnd, NULL, FALSE);
+        return res;
+    }
+
+    if (msg == WM_KILLFOCUS) {
+        res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
+        g_edit_focused = 0;
+        KillTimer(hWnd, EDIT_CARET_TIMER);
+        InvalidateRect(hWnd, NULL, FALSE);
+        return res;
+    }
+
+    if (msg == WM_PAINT) {
+        res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
+        HideCaret(hWnd);
+        edit_draw_overlay(hWnd);
+        return res;
+    }
+
     if (msg == WM_PASTE) {
-        LRESULT res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
         wchar_t url[1024];
+        res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
         GetWindowTextW(hWnd, url, 1023);
+        edit_after_edit(hWnd);
         if (is_valid_url(url)) {
             trigger_fetch();
         }
         return res;
-    } else if (msg == WM_KEYDOWN && wParam == VK_RETURN) {
-        trigger_download();
-        return 0;
     }
+
+    if (msg == WM_CHAR || msg == WM_KEYDOWN || msg == WM_CUT || msg == WM_CLEAR ||
+        msg == WM_UNDO || msg == WM_SETTEXT ||
+        msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP || msg == WM_LBUTTONDBLCLK ||
+        (msg == WM_MOUSEMOVE && (wParam & MK_LBUTTON))) {
+        res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
+        edit_after_edit(hWnd);
+        return res;
+    }
+
     return CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
 }
 
