@@ -113,6 +113,7 @@ static int g_tracked_count = 0;
 #define EDIT_CARET_TIMER 7
 static int g_edit_focused = 0;
 static int g_edit_caret_visible = 1;
+static int g_app_active = 0;
 
 
 static HFONT g_fontTitle = NULL;
@@ -788,13 +789,14 @@ static void trigger_autofetch(const wchar_t *url)
    URL kutusu: özel imleç ve GB renkli metin seçimi
    Yerel EDIT denetimi metin düzenlemeyi yapar; görsel katmanı biz çizeriz.
    ------------------------------------------------------------------ */
-static int edit_char_x(HWND hWnd, int index, int *x)
+static int edit_char_pos(HWND hWnd, int index, int *x, int *y)
 {
     LRESULT pos;
     if (index < 0) return 0;
     pos = SendMessageW(hWnd, EM_POSFROMCHAR, (WPARAM)index, 0);
     if (pos == -1) return 0;
     *x = (int)(short)LOWORD(pos);
+    *y = (int)(short)HIWORD(pos);
     return 1;
 }
 
@@ -814,8 +816,9 @@ static void edit_after_edit(HWND hWnd)
     InvalidateRect(hWnd, NULL, FALSE);
 }
 
-static void edit_draw_overlay(HWND hWnd)
+static void edit_paint(HWND hWnd)
 {
+    PAINTSTRUCT ps;
     HDC dc;
     RECT rc, sel;
     TEXTMETRICW tm;
@@ -823,57 +826,105 @@ static void edit_draw_overlay(HWND hWnd)
     HFONT font;
     HGDIOBJ old_font;
     DWORD sel_start = 0, sel_end = 0;
-    wchar_t text[2048];
+    wchar_t text[4096];
     POINT caret;
-    int len, x0 = 0, x1 = 0, has_sel, cx, caret_w;
+    int len, tx, ty, x1, y2, has_sel, cx, caret_w;
+    int got_caret, focused;
 
-    if (!g_edit_focused || !GetCaretPos(&caret)) return;
-    if (!GetClientRect(hWnd, &rc)) return;
+    dc = BeginPaint(hWnd, &ps);
+    if (!dc) return;
+    GetClientRect(hWnd, &rc);
 
-    dc = GetDC(hWnd);
+    /* Odak bayrağı WM_SETFOCUS/KILLFOCUS ile her zaman güncel kalmayabilir.
+       GetGUIThreadInfo, pencere önplanda değilken de gerçek odak penceresini
+       verir; g_app_active ise uygulamanın aktif olup olmadığını söyler. */
+    focused = 0;
+    if (g_app_active) {
+        GUITHREADINFO gti;
+        memset(&gti, 0, sizeof(gti));
+        gti.cbSize = sizeof(gti);
+        if (GetGUIThreadInfo(GetCurrentThreadId(), &gti)) {
+            focused = (gti.hwndFocus == hWnd);
+        } else {
+            focused = (GetFocus() == hWnd);
+        }
+    }
+    if (focused != g_edit_focused) {
+        g_edit_focused = focused;
+        if (focused) edit_start_blink(hWnd);
+        else KillTimer(hWnd, EDIT_CARET_TIMER);
+    }
+
+    /* Arka planı baştan biz çiziyoruz; yerel EDIT'in mavi seçimi hiç görünmez. */
+    gb_fill(dc, &rc, GB_LIGHTEST);
+
     font = (HFONT)SendMessageW(hWnd, WM_GETFONT, 0, 0);
     if (!font) font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
     old_font = SelectObject(dc, font);
     if (!GetTextMetricsW(dc, &tm)) {
         SelectObject(dc, old_font);
-        ReleaseDC(hWnd, dc);
+        EndPaint(hWnd, &ps);
         return;
     }
     if (!GetTextExtentPoint32W(dc, L"0", 1, &one)) one.cx = tm.tmAveCharWidth;
+    SetBkMode(dc, TRANSPARENT);
 
     SendMessageW(hWnd, EM_GETSEL, (WPARAM)&sel_start, (LPARAM)&sel_end);
-    len = GetWindowTextW(hWnd, text, 2047);
+    len = GetWindowTextW(hWnd, text, 4095);
     if (len < 0) len = 0;
     if (sel_start > (DWORD)len) sel_start = (DWORD)len;
     if (sel_end > (DWORD)len) sel_end = (DWORD)len;
-    has_sel = (sel_end > sel_start);
 
-    if (has_sel) {
-        if (!edit_char_x(hWnd, (int)sel_start, &x0)) x0 = rc.left;
-        if ((int)sel_end < len) {
-            if (!edit_char_x(hWnd, (int)sel_end, &x1)) x1 = x0;
-        } else if (len > 0) {
-            if (edit_char_x(hWnd, len - 1, &x1)) x1 += one.cx;
-            else x1 = x0;
-        } else {
-            x1 = x0;
+    got_caret = GetCaretPos(&caret);
+
+    tx = rc.left;
+    ty = rc.top;
+    if (len > 0) {
+        if (!edit_char_pos(hWnd, 0, &tx, &ty) && got_caret) {
+            tx = caret.x;
+            ty = caret.y;
         }
+    } else if (got_caret) {
+        tx = caret.x;
+        ty = caret.y;
+    }
 
-        sel.left = x0;
-        sel.right = x1;
-        sel.top = caret.y;
-        sel.bottom = caret.y + tm.tmHeight;
-        if (sel.left < rc.left) sel.left = rc.left;
-        if (sel.right > rc.right) sel.right = rc.right;
-        if (sel.right > sel.left) {
-            gb_fill(dc, &sel, GB_DARKEST);
-            SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, GB_LIGHTEST);
-            TextOutW(dc, x0, caret.y, text + sel_start, (int)(sel_end - sel_start));
+    has_sel = focused && (sel_end > sel_start);
+
+    if (len > 0) {
+        SetTextColor(dc, GB_DARKEST);
+        TextOutW(dc, tx, ty, text, len);
+
+        if (has_sel) {
+            int sx0 = tx;
+            int sx1 = tx;
+            int dummy_y;
+
+            if (!edit_char_pos(hWnd, (int)sel_start, &sx0, &dummy_y)) sx0 = tx;
+            if ((int)sel_end < len) {
+                if (!edit_char_pos(hWnd, (int)sel_end, &x1, &dummy_y)) x1 = sx0;
+                sx1 = x1;
+            } else {
+                int lastx;
+                if (edit_char_pos(hWnd, len - 1, &lastx, &y2)) sx1 = lastx + one.cx;
+                else sx1 = sx0;
+            }
+
+            sel.left = sx0;
+            sel.right = sx1;
+            sel.top = ty;
+            sel.bottom = ty + tm.tmHeight;
+            if (sel.left < rc.left) sel.left = rc.left;
+            if (sel.right > rc.right) sel.right = rc.right;
+            if (sel.right > sel.left) {
+                gb_fill(dc, &sel, GB_DARKEST);
+                SetTextColor(dc, GB_LIGHTEST);
+                TextOutW(dc, sx0, ty, text + sel_start, (int)(sel_end - sel_start));
+            }
         }
     }
 
-    if (g_edit_caret_visible) {
+    if (focused && got_caret && g_edit_caret_visible) {
         RECT cr;
         caret_w = S(2);
         if (caret_w < 2) caret_w = 2;
@@ -881,14 +932,14 @@ static void edit_draw_overlay(HWND hWnd)
         if (cx < rc.left) cx = rc.left;
         if (cx + caret_w > rc.right) cx = rc.right - caret_w;
         cr.left = cx;
-        cr.top = caret.y;
+        cr.top = ty;
         cr.right = cx + caret_w;
-        cr.bottom = caret.y + tm.tmHeight;
+        cr.bottom = ty + tm.tmHeight;
         gb_fill(dc, &cr, has_sel ? GB_LIGHTEST : GB_DARKEST);
     }
 
     SelectObject(dc, old_font);
-    ReleaseDC(hWnd, dc);
+    EndPaint(hWnd, &ps);
 }
 
 static LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -924,11 +975,19 @@ static LRESULT CALLBACK EditSubclassProc(HWND hWnd, UINT msg, WPARAM wParam, LPA
         return res;
     }
 
+    if (msg == WM_ERASEBKGND) {
+        HDC dc = (HDC)wParam;
+        RECT rc;
+        if (GetClientRect(hWnd, &rc)) {
+            gb_fill(dc, &rc, GB_LIGHTEST);
+        }
+        return 1;
+    }
+
     if (msg == WM_PAINT) {
-        res = CallWindowProcW(g_oldEditProc, hWnd, msg, wParam, lParam);
         HideCaret(hWnd);
-        edit_draw_overlay(hWnd);
-        return res;
+        edit_paint(hWnd);
+        return 0;
     }
 
     if (msg == WM_PASTE) {
@@ -1814,6 +1873,18 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (g_initial_url[0] != L'\0' && is_valid_url(g_initial_url)) {
                 SetWindowTextW(g_hEditUrl, g_initial_url);
                 trigger_fetch();
+            }
+            return 0;
+        }
+
+        case WM_ACTIVATE: {
+            g_app_active = (LOWORD(wParam) != WA_INACTIVE);
+            if (g_hEditUrl) {
+                if (!g_app_active) {
+                    g_edit_focused = 0;
+                    KillTimer(g_hEditUrl, EDIT_CARET_TIMER);
+                }
+                InvalidateRect(g_hEditUrl, NULL, FALSE);
             }
             return 0;
         }
