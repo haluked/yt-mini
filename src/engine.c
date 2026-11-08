@@ -347,6 +347,72 @@ static wchar_t *build_child_environment(void)
     return env;
 }
 
+/* Paketlenen ffmpeg her zaman MP3 kodlayıcısı içermiyor; UI'da boş yere
+   "MP3" seçeneği göstermemek ve indirmeyi yarıda bırakmamak için bir kez
+   kontrol edip önbelleğe alıyoruz. */
+int engine_ffmpeg_can_encode_mp3(void)
+{
+    static int cached = -1;
+    if (cached >= 0) return cached;
+
+    wchar_t ffmpeg_path[MAX_PATH];
+    cached = 0;
+    if (!engine_find_ffmpeg(ffmpeg_path, MAX_PATH)) return 0;
+
+    wchar_t cmd_line[MAX_PATH + 64];
+    _snwprintf(cmd_line, MAX_PATH + 64, L"\"%ls\" -hide_banner -encoders", ffmpeg_path);
+    cmd_line[MAX_PATH + 63] = L'\0';
+
+    HANDLE hReadPipe = NULL, hWritePipe = NULL;
+    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) return 0;
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW si;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    si.hStdInput = INVALID_HANDLE_VALUE;
+    si.hStdOutput = hWritePipe;
+    si.hStdError = hWritePipe;
+    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    PROCESS_INFORMATION pi;
+    memset(&pi, 0, sizeof(pi));
+
+    wchar_t *child_env = build_child_environment();
+    BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
+        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, child_env, NULL, &si, &pi);
+    free(child_env);
+    CloseHandle(hWritePipe);
+    if (!ok) {
+        CloseHandle(hReadPipe);
+        return 0;
+    }
+
+    /* Çıktı büyük olabilir; tamponu doldursak bile okumaya devam et. */
+    char out[32768];
+    size_t len = 0;
+    DWORD got = 0;
+    char chunk[4096];
+    while (ReadFile(hReadPipe, chunk, sizeof(chunk), &got, NULL) && got > 0) {
+        if (len + got < sizeof(out)) {
+            memcpy(out + len, chunk, got);
+            len += got;
+        }
+    }
+    out[len] = '\0';
+    CloseHandle(hReadPipe);
+
+    WaitForSingleObject(pi.hProcess, 10000);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+
+    if (strstr(out, "libmp3lame") || strstr(out, "libshine") || strstr(out, "mp3_mf"))
+        cached = 1;
+    return cached;
+}
+
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len)
 {
     if (seconds <= 0) {
@@ -853,6 +919,11 @@ static void parse_progress_line(
 
     /* 5. Total bytes */
     *out_total = atoll(pipe4 + 1);
+
+    /* Toplam boyut bilinmiyorsa yüzde göstermenin anlamı yok. yt-dlp çoklu
+       akışlarda "%100 / 0 bayt" satırı gönderebiliyor; bu, göstergenin iş
+       bitmeden dolmasına yol açıyordu. */
+    if (*out_total <= 0) *out_percent = 0;
 }
 
 static void download_fail(DownloadThreadParams *p, const wchar_t *message)
@@ -890,6 +961,14 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     int needs_ffmpeg = audio_mode || !p->selection.is_direct || p->selection.needs_reencode;
     if (needs_ffmpeg && !has_ffmpeg) {
         download_fail(p, L"ffmpeg.exe bulunamadı. Birleştirme veya dönüştürme için ffmpeg gerekli.");
+        return 0;
+    }
+
+    /* Paketlenen ffmpeg'de MP3 kodlayıcısı olmayabilir. İndirmeyi başlatıp
+       yarıda hata vermek yerine burada dur ve net söyle. */
+    if (audio_mode && _wcsicmp(p->selection.expected_container, L"mp3") == 0 &&
+        !engine_ffmpeg_can_encode_mp3()) {
+        download_fail(p, L"Bu ffmpeg sürümünde MP3 kodlayıcısı yok. Lütfen AAC (m4a) veya Opus seçin.");
         return 0;
     }
 
@@ -1015,6 +1094,9 @@ static DWORD WINAPI download_thread_main(LPVOID param)
 
     job = create_kill_job();
     wchar_t *child_env = build_child_environment();
+
+    FILETIME dl_start_time;
+    GetSystemTimeAsFileTime(&dl_start_time);
 
     EnterCriticalSection(&g_engine_cs);
     BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
@@ -1142,6 +1224,20 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     if (hJob) CloseHandle(hJob);
     if (hProc) CloseHandle(hProc);
     if (pi.hThread) CloseHandle(pi.hThread);
+
+    /* Postprocessing başarısız olduysa yt-dlp indirdiği ara dosyayı bırakır
+       (ör. MP3 dönüşümü patladığında .webm). Bu çalıştırmada oluştuğunu
+       zaman damgasından doğrulayıp temizle; kullanıcının eski dosyalarına
+       dokunma. */
+    if (!was_cancelled && exit_code != 0 && last_destination[0] != '\0') {
+        wchar_t leftover[MAX_PATH];
+        decode_path_bytes(last_destination, leftover, MAX_PATH);
+        WIN32_FILE_ATTRIBUTE_DATA fad;
+        if (leftover[0] && GetFileAttributesExW(leftover, GetFileExInfoStandard, &fad) &&
+            CompareFileTime(&fad.ftLastWriteTime, &dl_start_time) >= 0) {
+            DeleteFileW(leftover);
+        }
+    }
 
     /* Nihai yol: önce yt-dlp'nin UTF-8 raporu, olmazsa stdout'tan tahmin. */
     wchar_t wide_dest[MAX_PATH] = L"";

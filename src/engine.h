@@ -47,6 +47,7 @@ void engine_cleanup(void);
 
 int engine_find_ytdlp(wchar_t *out_path, size_t max_len);
 int engine_find_ffmpeg(wchar_t *out_path, size_t max_len);
+int engine_ffmpeg_can_encode_mp3(void);
 
 int engine_fetch_info_async(
     const wchar_t *url,

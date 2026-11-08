@@ -89,6 +89,7 @@ static MediaMetadata g_current_meta;
 static int g_has_meta = 0;
 static int g_is_fetching = 0;
 static int g_is_downloading = 0;
+static int g_mp3_available = 0;
 static int g_auto_download_after_fetch = 0;
 static int g_selection_valid = 0;
 static wchar_t g_last_fetched_url[1024] = L"";
@@ -1149,7 +1150,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             SendMessageW(g_hComboAudio, WM_SETFONT, (WPARAM)g_fontNormal, TRUE);
             SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"Opus (Ham En Yüksek Kalite)");
             SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"AAC (M4A - Apple Uyumlu)");
-            SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"MP3 (Evrensel Format)");
+            /* Paketlenen ffmpeg'de MP3 kodlayıcısı yoksa seçeneği hiç gösterme:
+               seçilip de indirme sonunda hata vermesi kullanıcıyı yanıltıyordu. */
+            g_mp3_available = engine_ffmpeg_can_encode_mp3();
+            if (g_mp3_available) {
+                SendMessageW(g_hComboAudio, CB_ADDSTRING, 0, (LPARAM)L"MP3 (Evrensel Format)");
+            }
             SendMessageW(g_hComboAudio, CB_SETCURSEL, 0, 0);
 
             g_hStaticReason = CreateWindowExW(0, L"STATIC", L"",
