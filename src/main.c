@@ -10,7 +10,13 @@
 #include <stdio.h>
 
 #define APP_VERSION_STR L"2.1.0-light"
+/* Arayüz önizleme derlemeleri (-DGB_PREVIEW) mevcut uygulamayla aynı anda
+   çalışabilsin diye ayrı mutex kullanır. */
+#ifdef GB_PREVIEW
+#define APP_MUTEX_NAME  L"Local\\ff-dlp-viewer-preview"
+#else
 #define APP_MUTEX_NAME  L"Local\\ff-dlp-viewer-light"
+#endif
 #define WM_COPYDATA_URL 1
 
 static void show_cli_help(void)

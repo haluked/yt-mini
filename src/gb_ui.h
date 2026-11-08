@@ -13,6 +13,31 @@
 #define GB_LIGHT     RGB(0x8B, 0xAC, 0x0F)
 #define GB_LIGHTEST  RGB(0x9B, 0xBC, 0x0F)
 
+/* Köşe biçimi.
+   GB_CORNER_CHAMFER: piksel basamaklı 45 derece kesik köşe (8-bit dili).
+   GB_CORNER_SMOOTH : kenar yumuşatmalı (anti-aliased) yuvarlak köşe.
+   Varsayılan derleme zamanında GB_CORNER_DEFAULT ile seçilir; önizleme
+   derlemeleri -DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH ile ayrılır. */
+#define GB_CORNER_CHAMFER 0
+#define GB_CORNER_SMOOTH  1
+
+int  gb_radius(int large);
+
+/* Yuvarlatılmış (veya kesik köşeli) dolgu ve çerçeve.
+   bg: köşe dışında kalan alanın rengi (arka plan).
+   inner: çerçevenin içini dolduracak renk. */
+void gb_fill_round(HDC hdc, const RECT *rc, COLORREF color, COLORREF bg);
+void gb_frame_round(HDC hdc, const RECT *rc, COLORREF color, int thickness,
+                    COLORREF bg, COLORREF inner, int large);
+
+/* Pencereyi köşelerinden yuvarlatır (bölge tabanlı; AA yoktur). */
+void gb_round_window(HWND hWnd, int large);
+
+/* Gövde biçiminde, sağ-alt köşeye kaydırılmış sert (2 px) gölge.
+   Gölge gövdenin dışında kalan bölgeye kırpılarak çizilir; böylece
+   yuvarlatılmış köşelerde çentik oluşmaz. */
+void gb_shadow(HDC hdc, const RECT *body, int offset, COLORREF color);
+
 /* Owner-draw denetim rolleri */
 #define GB_ROLE_PUSH     0
 #define GB_ROLE_PRIMARY  1

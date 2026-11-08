@@ -668,7 +668,7 @@ static void layout_controls(void)
     /* Grup 3: indirme durumu */
     SetWindowPos(g_hGrpDownload, NULL, x20, S(338), inner_w, S(130), SWP_NOZORDER);
     SetRect(&g_rc_panel_download, x20, S(338), x20 + inner_w, S(338) + S(130));
-    SetRect(&g_rc_progress, x32, S(360), x32 + content_w, S(360) + S(20));
+    SetRect(&g_rc_progress, x32, S(364), x32 + content_w, S(364) + S(14));
     SetWindowPos(g_hStaticStatus, NULL, x32, S(386), content_w, S(20), SWP_NOZORDER);
 
     int btn_y = S(416);
@@ -689,6 +689,9 @@ static void layout_controls(void)
         SetWindowPos(g_hBtnClose, NULL, close_x, S(9), close_w, close_h, SWP_NOZORDER);
         SetWindowPos(g_hBtnMin, NULL, min_x, S(9), close_w, close_h, SWP_NOZORDER);
     }
+
+    /* Pencere köşeleri: DPI değişiminde yarıçap yeniden uygulanır. */
+    gb_round_window(g_hWnd, 1);
 
     InvalidateRect(g_hWnd, NULL, TRUE);
 }
@@ -1362,8 +1365,8 @@ static LRESULT CALLBACK ToastWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
             {
                 RECT rcBtn = { rcClient.right - S(98), S(30), rcClient.right - S(10), S(66) };
                 g_toast_state.rc_btn = rcBtn;
-                gb_fill(hdc, &rcBtn, g_toast_state.btn_hover ? GB_DARK : GB_DARKEST);
-                gb_frame(hdc, &rcBtn, GB_DARKEST, S(2));
+                gb_frame_round(hdc, &rcBtn, GB_DARKEST, S(2), GB_LIGHTEST,
+                               g_toast_state.btn_hover ? GB_DARK : GB_DARKEST, 0);
                 gb_text(hdc, g_toast_state.font_btn, GB_LIGHTEST, &rcBtn, L"İNDİR",
                         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
             }
@@ -1492,6 +1495,7 @@ static void show_toast_popup(HWND hMainWnd, const MediaMetadata *meta, const wch
     );
 
     if (g_hToastWnd) {
+        gb_round_window(g_hToastWnd, 1);
         ShowWindow(g_hToastWnd, SW_SHOWNOACTIVATE);
         UpdateWindow(g_hToastWnd);
     }
@@ -1557,24 +1561,15 @@ static void show_tray_menu(HWND hWnd)
 static void draw_panel(HDC hdc, const RECT *prc, const wchar_t *title)
 {
     RECT tab;
-    SIZE sz;
-    HGDIOBJ old;
-    int text_w = 0;
     int tab_h = S(20);
-    int tab_w;
 
-    gb_fill(hdc, prc, GB_LIGHTEST);
-    gb_frame(hdc, prc, GB_DARKEST, S(2));
+    gb_frame_round(hdc, prc, GB_DARKEST, S(2), GB_DARK, GB_LIGHTEST, 1);
 
-    /* Panel başlığı: üst kenara yapışık koyu şerit */
-    old = SelectObject(hdc, g_fontBold);
-    if (GetTextExtentPoint32W(hdc, title, (int)wcslen(title), &sz)) text_w = sz.cx;
-    SelectObject(hdc, old);
-
-    tab_w = text_w + S(20);
+    /* Panel başlığı: tam genişlik koyu şerit. Şeridin kare köşeleri panelin
+       2 px koyu çerçevesinin altında kaldığı için ayrıca kesmeye gerek yok. */
     tab.left = prc->left + S(2);
     tab.top = prc->top + S(2);
-    tab.right = tab.left + tab_w;
+    tab.right = prc->right - S(2);
     tab.bottom = tab.top + tab_h;
     gb_fill(hdc, &tab, GB_DARKEST);
 
@@ -1597,7 +1592,7 @@ static void draw_progress(HDC hdc, const RECT *prc, int percent)
     if (percent > 100) percent = 100;
 
     gb_fill(hdc, prc, GB_LIGHT);
-    gb_frame(hdc, prc, GB_DARKEST, S(2));
+    gb_frame_round(hdc, prc, GB_DARKEST, S(2), GB_LIGHTEST, GB_LIGHT, 0);
 
     inner = *prc;
     InflateRect(&inner, -S(3), -S(3));
@@ -1609,6 +1604,17 @@ static void draw_progress(HDC hdc, const RECT *prc, int percent)
     gap = S(2);
     if (block < 2) block = 2;
     if (gap < 1) gap = 1;
+
+    /* Boş kanalda bölme çizgileri: çubuk metin kutusu gibi değil,
+       ölçek gibi okunur. */
+    for (x = block + gap; x < inner_w; x += block + gap) {
+        RECT s;
+        s.left = inner.left + x - gap;
+        s.top = inner.top;
+        s.right = s.left + 1;
+        s.bottom = inner.bottom;
+        gb_fill(hdc, &s, GB_DARK);
+    }
 
     for (x = 0; x < fill_w; x += block + gap) {
         RECT b;
@@ -1633,12 +1639,12 @@ static void paint_main(HWND hWnd, HDC hdc)
 
     GetClientRect(hWnd, &rc);
 
-    /* Sayfa zemini + konsol çerçevesi */
-    gb_fill(hdc, &rc, GB_LIGHT);
-    gb_frame(hdc, &rc, GB_DARK, S(6));
+    /* Sayfa zemini + konsol çerçevesi. Zemin koyu ton: paneller öne çıksın. */
+    gb_fill(hdc, &rc, GB_DARK);
+    gb_frame(hdc, &rc, GB_DARKEST, S(6));
     inner = rc;
     InflateRect(&inner, -S(6), -S(6));
-    gb_frame(hdc, &inner, GB_DARKEST, S(1));
+    gb_frame(hdc, &inner, GB_LIGHTEST, S(1));
 
     /* Başlık */
     icon_scale = S(2);
@@ -1649,7 +1655,7 @@ static void paint_main(HWND hWnd, HDC hdc)
     title_rc.top = S(10);
     title_rc.right = rc.right - S(200);
     title_rc.bottom = S(38);
-    gb_text(hdc, g_fontTitle, GB_DARKEST, &title_rc, L"FF-DLP-VIEWER",
+    gb_text(hdc, g_fontTitle, GB_LIGHTEST, &title_rc, L"FF-DLP-VIEWER",
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
     /* Platform rozeti */
@@ -1663,8 +1669,8 @@ static void paint_main(HWND hWnd, HDC hdc)
     badge_rc.left = badge_rc.right - S(82);
     badge_rc.top = S(14);
     badge_rc.bottom = S(36);
-    gb_fill(hdc, &badge_rc, GB_DARKEST);
-    gb_frame(hdc, &badge_rc, GB_DARK, S(2));
+    gb_fill_round(hdc, &badge_rc, GB_DARKEST, GB_DARK);
+    gb_frame_round(hdc, &badge_rc, GB_DARKEST, S(2), GB_DARK, GB_DARKEST, 0);
     {
         RECT tr = badge_rc;
         tr.left += S(4);
@@ -1676,7 +1682,7 @@ static void paint_main(HWND hWnd, HDC hdc)
     /* Başlık çubuğu ayırıcısı */
     {
         RECT divider = { S(12), S(43), rc.right - S(12), S(44) };
-        gb_fill(hdc, &divider, GB_DARK);
+        gb_fill(hdc, &divider, GB_DARKEST);
     }
 
     /* Bölüm panelleri */
@@ -1687,7 +1693,7 @@ static void paint_main(HWND hWnd, HDC hdc)
     /* URL kutusunun kendi çerçevesi */
     edit_frame = g_rc_edit;
     InflateRect(&edit_frame, S(2), S(2));
-    gb_fill(hdc, &edit_frame, GB_DARKEST);
+    gb_frame_round(hdc, &edit_frame, GB_DARKEST, S(2), GB_LIGHTEST, GB_LIGHTEST, 1);
 
     /* İlerleme çubuğu */
     draw_progress(hdc, &g_rc_progress, g_progress);

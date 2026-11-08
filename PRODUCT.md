@@ -43,8 +43,8 @@ Gereksiz "AI dashboard" süslemeleri, yüzlerce megabaytlık Electron veya ağı
 
 ## Brand Commitments
 
-- **Stil**: Game Boy DMG 8-bit estetiği: yalnızca 4 yeşil ton, keskin köşeler, 2 px sert çerçeve/gölge, sistem `Consolas` fontu (anti-aliasing kapalı). Harici görsel/font dosyası yok.
-- **Anti-pattern Yasakları**: Gradient, parlama (glow), bulanık gölge, yuvarlatılmış köşe, işletim sisteminin çizdiği kontrol (combobox/radio/checkbox), emoji ikonlar ve yapay zeka jeneriği kartlar kesinlikle yer almaz.
+- **Stil**: Game Boy DMG 8-bit estetiği: yalnızca 4 yeşil ton, piksel basamaklı (chamfer) köşeler, 2 px sert çerçeve/gölge, sistem `Consolas` fontu (anti-aliasing kapalı). Harici görsel/font dosyası yok.
+- **Anti-pattern Yasakları**: Gradient, parlama (glow), bulanık gölge, anti-aliased (bulanık) köşe, işletim sisteminin çizdiği kontrol (combobox/radio/checkbox), emoji ikonlar ve yapay zeka jeneriği kartlar kesinlikle yer almaz.
 - **Dil**: Tamamen Türkçe ve yalın terminoloji.
 
 ## Product Principles

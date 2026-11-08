@@ -14,8 +14,13 @@ sabit ve öngörülebilirdir.
 
 ### Temel kurallar
 1. **Dört ton:** Ara renk yok. Gerektiğinde 1 px dama deseni (dither) kullanılır.
-2. **Keskin geometri:** Köşe yuvarlatma yok. Çerçeve ve gölge 2 px, sert.
-3. **Gölge = 2 px kayma:** Bulanık gölge, gradient, parlama yok.
+2. **Piksel köşe:** Köşeler yuvarlatılır ama bulanıklaştırılmaz: büyük
+   yüzeylerde 5 px, denetimlerde 3 px, 45° piksel basamağıyla kesilir
+   (`gb_fill_round`, `gb_frame_round`, `gb_round_window`). Anti-aliased
+   (ara ton üreten) yuvarlatma yasaktır. Çerçeve ve gölge 2 px, sert.
+3. **Gölge = 2 px kayma:** Bulanık gölge, gradient, parlama yok. Gölge,
+   gövdenin dışında kalan bölgeye kırpılarak çizilir (`gb_shadow`), böylece
+   kesik köşede çentik oluşmaz.
 4. **Özel çizim:** Buton, chip, checkbox, açılır liste, ilerleme çubuğu, bildirim,
    onay penceresi ve başlık çubuğu `BS_OWNERDRAW`/GDI ile çizilir. Yerel
    `COMBOBOX`, `BUTTON` (radio/checkbox) ve `PROGRESS_CLASS` kullanılmaz.
@@ -32,15 +37,15 @@ sabit ve öngörülebilirdir.
 
 | Token | Hex | Rol |
 | :--- | :--- | :--- |
-| `GB_DARKEST` | `#0F380F` | Metin, çerçeve, seçili yüzey, dolu ilerleme |
-| `GB_DARK` | `#306230` | Buton yüzü, hover, ayırıcı, ikincil yüzey |
-| `GB_LIGHT` | `#8BAC0F` | Sayfa zemini, çukur alan, pasif dama |
+| `GB_DARKEST` | `#0F380F` | Metin, çerçeve, konsol dış çerçevesi, panel başlık şeridi, seçili yüzey, dolu ilerleme |
+| `GB_DARK` | `#306230` | Sayfa zemini, buton yüzü, hover, gölge, ayırıcı, ikincil yüzey |
+| `GB_LIGHT` | `#8BAC0F` | İlerleme kanalı, çukur alan, pasif dama |
 | `GB_LIGHTEST` | `#9BBC0F` | Panel ve giriş yüzeyi, açık metin |
 
 Kontrast: `GB_DARKEST` / `GB_LIGHTEST` ≈ **6.0:1** (gövde metni için yeterli).
-`GB_DARK` üzerine `GB_LIGHTEST` ≈ **3.7:1**; bu yüzden küçük metin asla
-`GB_DARK` zemin üzerine yazılmaz. Buton hover'ında metin `GB_LIGHTEST` olsa da
-buton yazısı 12-14 px kalın olduğu için kabul edilir; kritik metin değildir.
+`GB_LIGHTEST` / `GB_DARK` ≈ **3.7:1**; bu yüzden koyu zemin üzerinde yalnızca
+büyük ve kalın metin (başlık, rozet, şerit) `GB_LIGHTEST` ile yazılır. Küçük
+gövde metni daima açık panel üzerinde `GB_DARKEST` ile yazılır.
 
 ---
 
@@ -64,13 +69,16 @@ Hiyerarşi: **uygulama adı → bölüm şeridi → medya başlığı → gövde
 ## 4. Ölçü ve yerleşim
 
 - **Pencere:** 646×485 istemci alanı; sabit boyut, kendi başlık çubuğu.
+  Köşeler bölge ile 5 px kesilir (`gb_round_window`).
 - **Başlık çubuğu:** 44 px. Sürüklenebilir (`HTCAPTION`), sağda küçült/kapat
   düğmeleri (26×24). Platform rozeti düğmelerin solunda.
-- **Konsol çerçevesi:** 6 px `GB_DARK` dış çerçeve + 1 px `GB_DARKEST` iç çizgi.
+- **Konsol çerçevesi:** 6 px `GB_DARKEST` dış çerçeve + 1 px `GB_LIGHTEST`
+  iç çizgi. Zemin `GB_DARK`.
 - **8 px ızgara:** dış boşluk 16-22 px, bölüm arası 14 px, iç boşluk 8 px.
-- **Bölüm panelleri:** `GB_LIGHTEST` zemin, 2 px `GB_DARKEST` çerçeve; sol üstte
-  22 px yüksekliğinde koyu başlık şeridi (`1 BAĞLANTI`, `2 MEDYA VE FORMAT`,
-  `3 İNDİRME DURUMU`). Şerit, panelin üst çizgisine yapışıktır.
+- **Bölüm panelleri:** `GB_LIGHTEST` zemin, 2 px `GB_DARKEST` çerçeve,
+  5 px kesik köşe. Üstte tam genişlikte 20 px koyu başlık şeridi
+  (`1 BAĞLANTI`, `2 MEDYA VE FORMAT`, `3 İNDİRME DURUMU`); şerit panelin
+  iç çerçevesine oturur, köşeleri çerçevenin altında kalır.
 - **Sabit medya yüksekliği:** 212 px; boş durum, künye, seçenekler ve not bu
   alanı paylaşır. Pencere içerikle birlikte büyümez.
 
@@ -80,9 +88,10 @@ Hiyerarşi: **uygulama adı → bölüm şeridi → medya başlığı → gövde
 
 ### A. Buton (`gb_draw_control`, rol `PUSH` / `PRIMARY` / `DANGER`)
 Yüz `GB_LIGHTEST` (birincil/tehlikeli eylemde `GB_DARKEST`), 2 px `GB_DARKEST`
-çerçeve, sağ-alt 2 px `GB_DARK` sert gölge. Basılınca yüz `GB_DARK` olur ve içerik
-1 px aşağı kayar. Pasifken zemin `GB_LIGHT` dama deseniyle doldurulur.
-Hover'da yüz `GB_DARK`, yazı `GB_LIGHTEST`. Odakta 1 px iç çerçeve.
+çerçeve, sağ-alt 2 px `GB_DARK` sert gölge, 3 px kesik köşe. Basılınca yüz
+`GB_DARK` olur ve içerik 1 px aşağı kayar. Pasifken zemin `GB_LIGHT` dama
+deseniyle doldurulur. Hover'da yüz `GB_DARK`, yazı `GB_LIGHTEST`. Odakta 1 px
+iç çerçeve.
 
 ### B. Seçim çipi (`CHIP`)
 Video / Ses seçimi. Seçili: `GB_DARKEST` zemin + `GB_LIGHTEST` yazı. Seçili
@@ -99,8 +108,10 @@ Seçili satır `GB_DARKEST`/`GB_LIGHTEST`, hover `GB_DARK`/`GB_LIGHTEST`, seçil
 satırın solunda 2×4 px işaret. `↑/↓`, `Enter`, `Esc` ve dışına tıklama desteklenir.
 
 ### E. İlerleme çubuğu
-`GB_LIGHT` kanal, 2 px `GB_DARKEST` çerçeve. Dolgu, 7 px blok + 2 px boşluk
-ritmiyle `GB_DARKEST` bloklardan oluşur. Animasyon yok; gerçek veriyle güncellenir.
+14 px yüksekliğinde; `GB_LIGHT` kanal, 2 px `GB_DARKEST` çerçeve, 3 px kesik
+köşe. Boş kanalda 1 px `GB_DARK` bölme çizgileri vardır; böylece çubuk URL
+girişiyle karışmaz. Dolgu, 7 px blok + 2 px boşluk ritmiyle `GB_DARKEST`
+bloklardan oluşur. Animasyon yok; gerçek veriyle güncellenir.
 
 ### F. URL girişi
 Yerel `EDIT` denetimi; çevresinde 2 px `GB_DARKEST` çerçeve. Zemin `GB_LIGHTEST`,
@@ -138,7 +149,7 @@ iptali tetikler. Sahip pencere modal sırasında devre dışıdır.
 ## 7. Yasaklar
 
 - Dört ton dışında renk; gradient, blur, parlama, yumuşak gölge.
-- Yuvarlatılmış köşe; kart içinde kart.
+- Anti-aliased (bulanık) köşe; kart içinde kart.
 - Yerel `COMBOBOX`, radio/checkbox, `PROGRESS_CLASS` (URL `EDIT` istisnadır).
 - Emoji veya unicode simgeyle ikon taklidi.
 - Dekoratif animasyon, açılışta sıralı giriş efekti.
@@ -150,8 +161,14 @@ iptali tetikler. Sahip pencere modal sırasında devre dışıdır.
 ## 8. Uygulama notları
 
 - Palet ve çizim ilkelleri: `src/gb_ui.h`, `src/gb_ui.c`.
+- Köşe/gölge ilkelleri: `gb_fill_round`, `gb_frame_round`, `gb_shadow`,
+  `gb_round_window`. Yarıçaplar `GB_RADIUS_SMALL` (3) / `GB_RADIUS_LARGE` (5).
+- Köşe biçimi derleme zamanında `GB_CORNER_DEFAULT` ile seçilir; önizleme
+  derlemesi `-DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH` ile alınır.
+- `-DGB_PREVIEW` ayrı mutex kullanır; önizleme, kurulu uygulamayla aynı anda
+  çalışabilir.
 - Ana pencere, yerleşim ve durum yönetimi: `src/ui.c`.
 - Ölçekleme: `gb_scale()` / `S()` — 96 DPI taban, Per-Monitor V2.
-- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~341 KB.
+- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~345 KB.
 - Yeni bileşen eklerken: rengi paletten seç, 2 px çerçeve kullan, beş durumu
   (normal, hover, basılı, pasif, odak) çiz, metni Türkçe tut.
