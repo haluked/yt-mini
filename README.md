@@ -1,4 +1,4 @@
-# ff-dlp-viewer (v2.3 Native Light)
+# ff-dlp-viewer (v2.3 Native Retro)
 
 **English** · [Türkçe](README.tr.md)
 
@@ -6,7 +6,7 @@
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
-[![Binary Size](https://img.shields.io/badge/Binary_Size-~345_KB-brightgreen?style=flat-square)](#)
+[![Binary Size](https://img.shields.io/badge/Binary_Size-~343_KB-brightgreen?style=flat-square)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-8CBE9C?style=flat-square)](LICENSE)
 
 ---
@@ -15,7 +15,7 @@
 
 **ff-dlp-viewer** was rewritten from scratch in pure C11 using the native Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`), removing heavy dependencies such as the Python runtime, PyInstaller and Electron entirely.
 
-The final executable is **only ~345 KB**, with memory usage around 10–15 MB.
+The final executable is **only ~343 KB**, with memory usage around 10–15 MB.
 
 ---
 
@@ -56,7 +56,7 @@ The final executable is **only ~345 KB**, with memory usage around 10–15 MB.
   - On the first close, a one-time "running in the background" notice is shown.
 
 - **Single instance and command-line integration**:
-  - A named mutex (`Local\ff-dlp-viewer-light`) prevents more than one copy from running at once.
+  - A named mutex (`Local\ff-dlp-viewer`) prevents more than one copy from running at once.
   - When a second instance is started with `--url <URL>` or `--url=URL`, the link is transferred to the open window via `WM_COPYDATA` and the window is brought forward.
 
 ---

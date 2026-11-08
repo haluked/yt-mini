@@ -165,12 +165,9 @@ right-aligned at the bottom: `OK`, `YES`, `NO`, `CANCEL`. `Enter` triggers the d
 - Palette and drawing primitives: `src/gb_ui.h`, `src/gb_ui.c`.
 - Corner/shadow primitives: `gb_fill_round`, `gb_frame_round`, `gb_shadow`,
   `gb_round_window`. Radii are `GB_RADIUS_SMALL` (3) / `GB_RADIUS_LARGE` (5).
-- Corner style is chosen at build time with `GB_CORNER_DEFAULT`; preview builds use
-  `-DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH`.
-- `-DGB_PREVIEW` uses a separate mutex so a preview can run alongside the installed app.
 - Main window, layout and state management: `src/ui.c`.
 - Scaling: `gb_scale()` / `S()` — 96 DPI base, Per-Monitor V2.
-- Size budget: **< 1 MB mandatory**; the current build is ~345 KB.
+- Size budget: **< 1 MB mandatory**; the current build is ~343 KB.
 - When adding a new component: pick the color from the palette, use a 2 px frame, draw
   all five states (normal, hover, pressed, disabled, focus), and keep the text short and
   plain English.

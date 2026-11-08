@@ -14,14 +14,8 @@
 static UINT g_gb_dpi = 96;
 
 /* Corner radius in design units (96 DPI base). */
-#ifndef GB_CORNER_DEFAULT
-#define GB_CORNER_DEFAULT GB_CORNER_CHAMFER
-#endif
-
 #define GB_RADIUS_SMALL 3
 #define GB_RADIUS_LARGE 5
-
-static int g_corner_mode = GB_CORNER_DEFAULT;
 
 int gb_scale(int value)
 {
@@ -87,52 +81,10 @@ int gb_radius(int large)
     return r;
 }
 
-static COLORREF gb_blend(COLORREF a, COLORREF b, int t)
-{
-    int r, g, bl;
-    if (t <= 0) return a;
-    if (t >= 256) return b;
-    r  = GetRValue(a) + (GetRValue(b) - GetRValue(a)) * t / 256;
-    g  = GetGValue(a) + (GetGValue(b) - GetGValue(a)) * t / 256;
-    bl = GetBValue(a) + (GetBValue(b) - GetBValue(a)) * t / 256;
-    return RGB(r, g, bl);
-}
-
-/* Integer square root (computed once per radius; no libm needed). */
-static unsigned long gb_isqrt(unsigned long v)
-{
-    unsigned long r = 0;
-    unsigned long bit = 1UL << 30;
-    while (bit > v) bit >>= 2;
-    while (bit) {
-        if (v >= r + bit) {
-            v -= r + bit;
-            r = (r >> 1) + bit;
-        } else {
-            r >>= 1;
-        }
-        bit >>= 2;
-    }
-    return r;
-}
-
-/* Pixel coverage ratio for a smooth corner (0..255). Computed in 1/16 px
-   units from the distance between the pixel center and the arc center. */
-static int gb_cov(int i, int j, int r)
-{
-    long dx = (long)(16 * r - 16 * i - 8);
-    long dy = (long)(16 * r - 16 * j - 8);
-    unsigned long d = gb_isqrt((unsigned long)(dx * dx + dy * dy));
-    long c = (long)(16 * r + 8) - (long)d;   /* 1/16 px, 0..16 */
-    if (c <= 0) return 0;
-    if (c >= 16) return 255;
-    return (int)(c * 16);
-}
-
-/* Paints the four corners: pixels inside use `color`, outside use `bg`.
-   mask: 1=top left, 2=top right, 4=bottom left, 8=bottom right. */
+/* Paints the pixels outside the 45-degree cut with `bg`; the rest is left
+   untouched. mask: 1=top left, 2=top right, 4=bottom left, 8=bottom right. */
 static void gb_cut_corners(HDC hdc, const RECT *rc, int r,
-                           COLORREF color, COLORREF bg, unsigned mask)
+                           COLORREF bg, unsigned mask)
 {
     int c, i, j;
     int w, h;
@@ -155,16 +107,8 @@ static void gb_cut_corners(HDC hdc, const RECT *rc, int r,
 
         for (j = 0; j < r; j++) {
             for (i = 0; i < r; i++) {
-                int t;
-                if (g_corner_mode == GB_CORNER_CHAMFER) {
-                    if (i + j >= r) continue;   /* 45 derece kesik */
-                    t = 256;
-                } else {
-                    int a = gb_cov(i, j, r);
-                    if (a >= 255) continue;     /* fully inside */
-                    t = 256 - a;
-                }
-                SetPixelV(hdc, ox + sx * i, oy + sy * j, gb_blend(color, bg, t));
+                if (i + j >= r) continue;   /* inside the 45-degree cut */
+                SetPixelV(hdc, ox + sx * i, oy + sy * j, bg);
             }
         }
     }
@@ -174,7 +118,7 @@ void gb_fill_round(HDC hdc, const RECT *rc, COLORREF color, COLORREF bg)
 {
     if (!rc) return;
     gb_fill(hdc, rc, color);
-    gb_cut_corners(hdc, rc, gb_radius(0), color, bg, 15u);
+    gb_cut_corners(hdc, rc, gb_radius(0), bg, 15u);
 }
 
 void gb_frame_round(HDC hdc, const RECT *rc, COLORREF color, int thickness,
@@ -187,14 +131,14 @@ void gb_frame_round(HDC hdc, const RECT *rc, COLORREF color, int thickness,
     r = gb_radius(large);
 
     gb_fill(hdc, rc, color);
-    gb_cut_corners(hdc, rc, r, color, bg, 15u);
+    gb_cut_corners(hdc, rc, r, bg, 15u);
 
     in = *rc;
     InflateRect(&in, -thickness, -thickness);
     if (in.right <= in.left || in.bottom <= in.top) return;
 
     gb_fill(hdc, &in, inner);
-    gb_cut_corners(hdc, &in, r - thickness > 0 ? r - thickness : 0, inner, color, 15u);
+    gb_cut_corners(hdc, &in, r - thickness > 0 ? r - thickness : 0, color, 15u);
 }
 
 static HRGN gb_shape_rgn(const RECT *rc, int r)
@@ -210,11 +154,6 @@ static HRGN gb_shape_rgn(const RECT *rc, int r)
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
     if (r <= 0) return CreateRectRgn(rc->left, rc->top, rc->right, rc->bottom);
-
-    if (g_corner_mode == GB_CORNER_SMOOTH) {
-        return CreateRoundRectRgn(rc->left, rc->top, rc->right + 1,
-                                  rc->bottom + 1, r * 2, r * 2);
-    }
 
     {
         POINT p[8];
@@ -263,7 +202,7 @@ void gb_shadow(HDC hdc, const RECT *body, int offset, COLORREF color)
 
     /* Close the 1 px gap between the region scan and the pixel clip:
        the cut pixels at the bottom-right corner connect to the shadow. */
-    gb_cut_corners(hdc, body, r, color, color, 8u);
+    gb_cut_corners(hdc, body, r, color, 8u);
 }
 
 void gb_round_window(HWND hWnd, int large)
@@ -286,9 +225,7 @@ void gb_round_window(HWND hWnd, int large)
     if (r * 2 > w) r = w / 2;
     if (r * 2 > h) r = h / 2;
 
-    if (g_corner_mode == GB_CORNER_SMOOTH) {
-        rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, r * 2, r * 2);
-    } else {
+    {
         POINT pts[8];
         pts[0].x = r;     pts[0].y = 0;
         pts[1].x = w - r; pts[1].y = 0;

@@ -59,7 +59,7 @@ ff-dlp-viewer/
 ├── build.bat               # windres + gcc build with size verification
 ├── DESIGN.md               # Game Boy 8-bit design specification
 ├── PRODUCT.md              # Product specification
-├── LIGHT_ARCHITECTURE.md   # Size/runtime rationale of the native rewrite
+├── RETRO_ARCHITECTURE.md   # Size/runtime rationale of the native rewrite
 ├── NAMING.md               # Repository/binary naming decisions
 ├── TODO.md                 # Roadmap
 └── README.md               # User and developer documentation
@@ -154,12 +154,10 @@ $$\text{Opus} > \text{AAC} > \text{MP3}$$
 
 ## 6. Single Instance and Command Line
 
-- `CreateMutexW(Local\ff-dlp-viewer-light)` guarantees one instance; a second launch
+- `CreateMutexW(Local\ff-dlp-viewer)` guarantees one instance; a second launch
   finds the existing window (`FindWindowW(UI_WINDOW_CLASS)`) and brings it forward.
 - `--url <URL>` / `--url=URL` sends the link to the open window through `WM_COPYDATA`.
 - `--help` / `--version` show message boxes and exit.
-- `-DGB_PREVIEW` builds use a separate mutex so a preview can run next to the installed
-  app.
 
 ---
 
@@ -200,7 +198,7 @@ $$\text{Opus} > \text{AAC} > \text{MP3}$$
   and fails the size check above 1 MB.
 - The installer is produced with Inno Setup (`installer/setup.iss`) for a per-user
   install under `%LOCALAPPDATA%` without administrator rights.
-- Current output: ~345 KB executable, ~10–15 MB idle RAM.
+- Current output: ~343 KB executable, ~10-15 MB idle RAM.
 
 ---
 

@@ -55,7 +55,7 @@
   (for advanced users). Any registry/environment change must be reversible.
 
 ## 6. Identity/Brand Fix (yt-mini-lite transition)
-- The mutex (`Local\ff-dlp-viewer-light`), registry key
+- The mutex (`Local\ff-dlp-viewer`), registry key
   (`HKCU\Software\ff-dlp-viewer`), window class and titles still carry the
   **ff-dlp-viewer** name. They must all be updated at once when moving to the
   yt-mini-lite repository (a half-done rebrand mixes two names).

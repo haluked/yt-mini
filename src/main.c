@@ -9,20 +9,14 @@
 #include <wchar.h>
 #include <stdio.h>
 
-#define APP_VERSION_STR L"2.3.0-light"
-/* UI preview builds (-DGB_PREVIEW) use a separate mutex so they can run
-   alongside the installed app. */
-#ifdef GB_PREVIEW
-#define APP_MUTEX_NAME  L"Local\\ff-dlp-viewer-preview"
-#else
-#define APP_MUTEX_NAME  L"Local\\ff-dlp-viewer-light"
-#endif
+#define APP_VERSION_STR L"2.3.0"
+#define APP_MUTEX_NAME  L"Local\\ff-dlp-viewer"
 #define WM_COPYDATA_URL 1
 
 static void show_cli_help(void)
 {
     MessageBoxW(NULL,
-        L"ff-dlp-viewer (Native Ultra-Lightweight < 1 MB)\n\n"
+        L"ff-dlp-viewer (Native Retro UI, < 1 MB)\n\n"
         L"Usage:\n"
         L"  ff-dlp-viewer.exe                   -> Opens the graphical interface (GUI).\n"
         L"  ff-dlp-viewer.exe --help            -> Shows this help window.\n"
@@ -97,7 +91,7 @@ int WINAPI wWinMain(
                 return 0;
             } else if (_wcsicmp(argv[i], L"--version") == 0 || _wcsicmp(argv[i], L"-v") == 0) {
                 wchar_t ver_buf[128];
-                _snwprintf(ver_buf, 128, L"ff-dlp-viewer v%ls (Win32 Native Ultra-Lightweight)", APP_VERSION_STR);
+                _snwprintf(ver_buf, 128, L"ff-dlp-viewer v%ls (Win32 Native Retro)", APP_VERSION_STR);
                 MessageBoxW(NULL, ver_buf, L"Version", MB_OK | MB_ICONINFORMATION);
                 LocalFree(argv);
                 return 0;

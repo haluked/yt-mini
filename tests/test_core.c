@@ -331,7 +331,7 @@ static void test_cjson(void)
 int main(void)
 {
     printf("==========================================\n");
-    printf("RUNNING FF-DLP-VIEWER LIGHT C UNIT TESTS\n");
+    printf("RUNNING FF-DLP-VIEWER C UNIT TESTS\n");
     printf("==========================================\n");
 
     test_detector();

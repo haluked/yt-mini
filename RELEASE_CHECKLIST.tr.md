@@ -1,39 +1,43 @@
-# Yayın Öncesi Kontrol Listesi (Pre-Release Checklist)
+# Yayın Öncesi Kontrol Listesi
 
-ff-dlp-viewer GitHub'a veya son kullanıcılara yayınlanmadan önce doğrulanması gereken kontrol listesi:
+ff-dlp-viewer GitHub'da yayınlanmadan veya son kullanıcılara teslim edilmeden önce
+doğrulanması gereken liste:
 
-- [x] **Tasarım ve Arayüz Denetimi (Impeccable & Pixel Estetiği)**:
-  - Keskin köşeler (0 radius), 2px katı kenarlıklar uygulandı.
-  - Pastel renk paleti (`#F4F1EA`, `#7DBA84`, `#78A1BB`, `#E5B869`, `#DE7A68`) uygulandı.
-  - Gradient, blur, glow ve emoji içermeyen sade retro masaüstü dili korundu.
+- [x] **Tasarım ve Arayüz Denetimi (Game Boy 8-bit)**:
+  - Dört tonlu DMG paleti (`#0F380F`, `#306230`, `#8BAC0F`, `#9BBC0F`) uygulandı; palet dışında renk yok.
+  - Piksel basamaklı köşeler, 2 px sert çerçeve/gölge; gradient, blur, parlama veya anti-aliased köşe yok.
+  - Her kontrol özel çizilir; tek yerel kontrol URL `EDIT` kutusudur.
 
 - [x] **Kod Kalitesi ve Birim Testleri**:
-  - `python -m pytest tests/` ile 44 birim testinin tamamı başarıyla geçiyor.
-  - YouTube 4K, 1080p, TikTok, Instagram ve X format JSON örnekleriyle saf kodek seçici test edildi.
-  - Dosya sanitization (Windows yasak karakterler, path traversal, MAX_PATH) doğrulandı.
+  - Tüm C çekirdek testleri `tests\test_core.exe` ile geçiyor (detector, sanitization, codec selector, cJSON).
+  - MP4 zorlama davranışı kapsanıyor (doğrudan kopyalama, yalnızca ses dönüştürme, tam yeniden kodlama).
+  - Dosya adı temizliği (Windows yasak karakterler, yol aşımı, ayrılmış adlar, MAX_PATH) doğrulandı.
 
-- [x] **Bellek ve Performans Testi**:
-  - Windows Working Set bellek tüketimi ölçüldü.
-  - `yt_dlp` import'ları lazy hale getirildi.
-  - Sistem tepsisine küçültüldüğünde nesneler serbest bırakılıyor ve `SetProcessWorkingSetSize` ile bellek optimize ediliyor.
+- [x] **Boyut ve Performans**:
+  - `build.bat` çalıştırılabilir dosyanın 1 MB altında kaldığını doğruluyor (mevcut: ~343 KB).
+  - Boşta RAM ~10–15 MB ölçüldü.
+  - Harici çalışma zamanı yok: yalnızca yerel Windows sistem DLL'lerine bağlanıyor.
 
-- [x] **Sistem Tepsisi (Tray) Davranışı**:
-  - Pencere kapatıldığında (`WM_DELETE_WINDOW`) uygulama kapanmıyor, tray'de sessizce bekliyor.
-  - Çift/sol tık pencereyi öne getiriyor.
-  - İndirme sürerken çıkış istendiğinde kullanıcıdan açık onay isteniyor.
+- [x] **Arka Plan ve Tray Davranışı**:
+  - Pencere kapatıldığında tepsiye gizleniyor ve uygulama çalışmaya devam ediyor.
+  - İlk kapatmada bir kerelik "arka planda çalışıyor" bildirimi gösteriliyor.
+  - İndirme sürerken çıkış istendiğinde onay isteniyor.
+  - İkinci başlatma yeni kopya açmak yerine URL'yi mevcut pencereye (`WM_COPYDATA`) aktarıyor.
 
 - [x] **Güvenlik ve İzolasyon**:
-  - Subprocess yerine doğrudan `yt_dlp` Python kütüphane API'si kullanılıyor.
-  - ffmpeg ikilisi bağımsız olarak uygulamanın kendi `bin/` klasörüne yerleşiyor, sistem `PATH` değiştirilmiyor.
-  - Windows Tekil Örnek (Named Mutex) ile çift kopya açılması engelleniyor.
+  - Süreçler `CreateProcessW` ile başlatılıyor; kabuk komut dizesi birleştirilmiyor.
+  - URL'ler tırnak, ters bölü ve kontrol karakterlerini reddediyor.
+  - yt-dlp/ffmpeg uygulamanın kendi `bin/` klasörüne kuruluyor; sistem `PATH` değiştirilmiyor.
+  - Windows adlandırılmış mutex tek örneği garanti ediyor.
+  - İptal durumunda Job Object tüm süreç ağacını sonlandırıyor.
 
 - [x] **Kurulum ve Paketleme**:
-  - `installer/setup.iss` ile Inno Setup kurulum scripti hazırlandı (Türkçe dil, `%LOCALAPPDATA%` kurulumu, yönetici izni gerektirmeme).
-  - `installer/build.py` ve `build.bat` ile tek tıkla PyInstaller + Inno Setup derleme hattı hazırlandı.
-  - Geliştirici için `dev_setup.bat` ve `requirements.txt` hazırlandı.
+  - `installer/setup.iss` İngilizce Inno Setup kurulumu sağlıyor (kullanıcı bazlı `%LOCALAPPDATA%`, yönetici izni yok).
+  - `build.bat` yerel çalıştırılabilir dosyayı boyut doğrulamasıyla derliyor.
+  - İlk çalıştırma bootstrapper'ı eksikse yt-dlp/ffmpeg indiriyor.
 
 - [x] **Lisans Uyumluluğu**:
-  - `LICENSE` dosyası oluşturuldu: MIT Lisansı + yt-dlp (The Unlicense) ve FFmpeg (LGPL v2.1+) bağımsız binary kullanım şartları belirtildi.
+  - `LICENSE`, MIT Lisansı ile birlikte bağımsız ikili dosyalar olarak yt-dlp (The Unlicense) ve FFmpeg (LGPL v2.1+) kullanım şartlarını içeriyor.
 
-- [ ] **Kullanıcı Onayı & GitHub Push**:
-  - Haluk tarafından onaylanana kadar GitHub'a hiçbir push işlemi yapılmayacaktır.
+- [ ] **Kullanıcı Onayı ve GitHub Push**:
+  - Haluk onaylayana kadar GitHub'a hiçbir push yapılmaz.

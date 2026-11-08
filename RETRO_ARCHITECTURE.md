@@ -1,9 +1,9 @@
-# ff-dlp-viewer-light: Ultra-Lightweight Native C Win32 Architecture (< 1 MB)
+# ff-dlp-viewer: Native Retro C Win32 Architecture (< 1 MB)
 
-**English** · [Türkçe](LIGHT_ARCHITECTURE.tr.md)
+**English** · [Türkçe](RETRO_ARCHITECTURE.tr.md)
 
-This branch (`light`) exists to remove the Python/PyInstaller runtime bloat entirely and
-rebuild the app with **pure C (C11) / native Win32 API**.
+The app removes the Python/PyInstaller runtime bloat entirely and is built with
+**pure C (C11) / native Win32 API**, using a Game Boy-inspired 8-bit interface.
 
 ---
 
@@ -16,7 +16,7 @@ rebuild the app with **pure C (C11) / native Win32 API**.
 
 2. **Binary size and performance:**
    * **Target:** < 1 MB (ideal: 150 KB – 300 KB).
-   * **Achieved size:** **~345 KB** (352,768 bytes).
+   * **Achieved size:** **~343 KB** (351,232 bytes).
    * **Idle RAM footprint:** < 15 MB (about 85% less than 60–70 MB in the Python version).
    * **Startup time:** < 15 ms (almost instant).
 
@@ -74,7 +74,7 @@ tests\test_core.exe
 Test output:
 ```
 ==========================================
-RUNNING FF-DLP-VIEWER LIGHT C UNIT TESTS
+RUNNING FF-DLP-VIEWER C UNIT TESTS
 ==========================================
 [TEST] Detector testing...
   -> Detector tests PASSED!

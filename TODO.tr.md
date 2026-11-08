@@ -28,7 +28,7 @@
 - **İleride:** PATH'e ekleme, installer'da **opsiyonel bir onay kutusu** olarak düşünülebilir (gelişmiş kullanıcılar için). Windows registry/ortam değişkeni değişikliği geri alınabilir olmalı.
 
 ## 6. Kimlik/Marka Düzeltmesi (yt-mini-lite geçişi)
-- Mutex (`Local\ff-dlp-viewer-light`), registry anahtarı (`HKCU\Software\ff-dlp-viewer`), pencere sınıfı ve başlıklar hâlâ **ff-dlp-viewer** adını taşıyor. yt-mini-lite deposuna geçişte tek seferde, hepsi birden güncellenmeli (yarım rebrand = iki isim karışır).
+- Mutex (`Local\ff-dlp-viewer`), registry anahtarı (`HKCU\Software\ff-dlp-viewer`), pencere sınıfı ve başlıklar hâlâ **ff-dlp-viewer** adını taşıyor. yt-mini-lite deposuna geçişte tek seferde, hepsi birden güncellenmeli (yarım rebrand = iki isim karışır).
 - Not: pencere sınıfı adı değişirse `main.c`'teki `FindWindowW(UI_WINDOW_CLASS, ...)` ikinci örnek aktarımı otomatik olarak yeni adı kullanır — iki tarafı aynı commit'te değiştirmek yeterli.
 
 ## 7. Format Listesi Sınırı

@@ -1,189 +1,212 @@
-# Sistem Mimarisi Şartnamesi (ARCHITECTURE.md)
+# Sistem Mimarisi Şartnamesi (ARCHITECTURE.tr.md)
 
 ## 1. Genel Mimari Bakış
 
-ff-dlp-viewer, yüksek modülerliğe sahip, katmanlı ve olay güdümlü (event-driven) bir mimari ile tasarlanmıştır. Çekirdek iş mantığı (indirme, kodek analizi, platform tespiti) kullanıcı arayüzünden tamamen bağımsızdır ve saf Python fonksiyonları/sınıfları olarak birim testleriyle doğrulanabilir.
+ff-dlp-viewer, C11 ile yazılmış yerel bir Win32 uygulamasıdır. Windows sistem
+DLL'lerinin dışında çalışma zamanı bağımlılığı yoktur: Python, .NET, Electron veya
+harici bir GUI çatısı kullanılmaz. Çekirdek mantık (URL tespiti, kodek seçimi, dosya
+adı temizliği, JSON ayrıştırma) arayüzden bağımsız saf C'dir ve birim testleriyle
+doğrulanır.
 
 ```
-                    ┌─────────────────────────┐
-                    │    Kullanıcı Arayüzü    │
-                    │   (Tkinter Pixel UI)    │
-                    └───────────┬─────────────┘
-                                │ Olaylar / Kuyruk (Thread-Safe Queue)
-                                ▼
- ┌──────────────────────────────────────────────────────────────────┐
- │                         Uygulama Kontrolcüsü                     │
- │                        (AppCoordinator / State)                  │
- └──────┬───────────────────────┬───────────────────────────┬───────┘
-        │                       │                           │
-        ▼                       ▼                           ▼
-┌───────────────┐       ┌───────────────┐           ┌───────────────┐
-│ Platform &    │       │ Saf Kodek     │           │ İndirme       │
-│ URL Tanıyıcı  │       │ Seçici        │           │ Yöneticisi    │
-│ (extractor)   │       │ (codec_logic) │           │ (engine)      │
-└───────┬───────┘       └───────┬───────┘           └───────┬───────┘
-        │                       │                           │
-        │                       │                           ▼
-        │                       │                   ┌───────────────┐
-        │                       │                   │ yt-dlp Python │
-        │                       │                   │ Kütüphane API │
-        │                       │                   └───────┬───────┘
-        │                       │                           │
-        │                       │                           ▼
-        │                       │                   ┌───────────────┐
-        │                       │                   │ ffmpeg        │
-        │                       │                   │ (Gömülü CLI)  │
-        └───────────────────────┴───────────────────┴───────────────┘
-                                │
-                                ▼
-                    ┌───────────────────────┐
-                    │   Windows Tray &      │
-                    │   Yaşam Döngüsü       │
-                    │   (pystray + WinAPI)  │
-                    └───────────────────────┘
+                 ┌──────────────────────────────────────────────┐
+                 │                 main.c (WinMain)             │
+                 │  CLI ayrıştırma · tekil örnek · bootstrapper │
+                 └───────────────┬──────────────────────────────┘
+                                 │ pencereyi kurar, UI'yi başlatır
+                                 ▼
+                 ┌──────────────────────────────────────────────┐
+                 │              ui.c (UI iş parçacığı)          │
+                 │  pencere · özel çizim kontroller · tray      │
+                 │  durum makinesi · DPI · sürükle & bırak      │
+                 └───────┬───────────────────────────▲──────────┘
+                         │ engine_*_async()          │ WM_USER_* mesajları
+                         ▼                           │ (PostMessage)
+                 ┌──────────────────────────────────────────────┐
+                 │            engine.c (worker thread)          │
+                 │  CreateThread · CreatePipe · ReadFile        │
+                 │  ilerleme ayrıştırma · iptal · Job Object    │
+                 └───────┬───────────────────────────▲──────────┘
+                         │ CreateProcessW (gizli)    │ stdout / stderr
+                         ▼                           │
+                 ┌──────────────────────────────────────────────┐
+                 │        yt-dlp.exe  →  ffmpeg.exe             │
+                 │        (bin\ altında, asla PATH'te değil)    │
+                 └──────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 2. Modül Yapısı ve Sorumluluklar
 
-Proje dizini aşağıdaki gibi modüler paket yapısında kurgulanmıştır:
-
 ```
 ff-dlp-viewer/
-│
-├── core/                       # Çekirdek mantık (UI bağımsız)
-│   ├── __init__.py
-│   ├── detector.py             # URL platform tespiti (YouTube, TikTok, IG, X, Genel)
-│   ├── codec_selector.py       # Saf fonksiyonel kodek/konteyner seçici & kural motoru
-│   ├── downloader.py           # yt-dlp Python API sarmalayıcısı (Worker thread & callback)
-│   ├── sanitization.py         # Dosya adı temizleme (Windows yasak karakterler, traversal)
-│   └── updater.py              # GitHub Releases ve PyPI yt-dlp API güncelleyici & SHA-256 doğrulayıcı
-│
-├── ui/                         # Piksel kullanıcı arayüzü
-│   ├── __init__.py
-│   ├── app_window.py           # Ana Tkinter penceresi ve yaşam döngüsü
-│   ├── theme.py                # Pastel renk paleti, font tanımları, metrikler
-│   ├── widgets.py              # Özel piksel buton, ilerleme çubuğu, sekme bileşenleri
-│   ├── dialogs.py              # Hata, onay ve güncelleme pencereleri
-│   └── strings.py              # Tüm Türkçe arayüz metinleri (i18n hazır)
-│
-├── tray/                       # Sistem tepsisi yönetimi
-│   ├── __init__.py
-│   └── tray_manager.py         # pystray entegrasyonu, minimize-to-tray, RAM serbest bırakma
-│
-├── tests/                      # Birim ve entegrasyon testleri
-│   ├── __init__.py
-│   ├── test_detector.py        # Platform tanıma testleri
-│   ├── test_codec_selector.py  # Gerçek JSON format listeleriyle deterministik seçim testleri
-│   ├── test_sanitization.py    # Dosya yolu güvenlik testleri
-│   └── fixtures/               # YouTube, TikTok, IG, X örnek info_dict JSON'ları
-│
-├── installer/                  # Kurulum ve paketleme
-│   ├── setup.iss               # Inno Setup derleme scripti (Türkçe arayüz, %LOCALAPPDATA%)
-│   ├── build.py                # PyInstaller + Inno Setup tek komutla derleme aracı
-│   └── dev_setup.bat           # Geliştirici ortamı kurucu (pip venv)
-│
-├── main.py                     # Uygulama başlangıç noktası (Tekil örnek kontrolü / Mutex)
-├── DESIGN.md                   # Tasarım şartnamesi
-├── PRODUCT.md                  # Ürün şartnamesi
-├── ARCHITECTURE.md             # Mimari şartnamesi
-├── README.md                   # Proje tanıtımı ve belgeler
-├── LICENSE                     # Lisans dosyası
-└── requirements.txt            # Python bağımlılıkları (sabit sürümlerle)
+├── src/
+│   ├── main.c              # Giriş noktası: CLI, mutex, bootstrapper, ui_run()
+│   ├── ui.c                # Ana pencere, yerleşim, durum makinesi, tray, toast, sürükle & bırak
+│   ├── gb_ui.c             # Game Boy çizim ilkelleri, özel çizim kontroller, açılır liste, mesaj kutusu
+│   ├── engine.c            # Worker thread, gizli süreç boruları, metadata/indirme, ilerleme, iptal
+│   ├── bootstrapper.c      # İlk açılışta yt-dlp/ffmpeg indirme ve yt-dlp güncelleme penceresi
+│   ├── codec_selector.c    # Saf deterministik kodek/konteyner seçim motoru
+│   ├── detector.c          # URL doğrulama ve platform tespiti
+│   ├── sanitization.c      # Windows'a uygun dosya adı ve yol işleme
+│   ├── cjson.c             # Tek dosyalık JSON ayrıştırıcı (metadata ve format ağacı)
+│   ├── *.h                 # Genel arayüzler ve paylaşılan sabitler
+├── res/                    # app.ico, app.manifest, res.rc (sürüm bilgisi)
+├── tests/test_core.c       # detector, sanitization, codec selector ve cJSON birim testleri
+├── installer/setup.iss     # Inno Setup kurulum scripti
+├── build.bat               # windres + gcc derlemesi ve boyut doğrulaması
+├── DESIGN.md               # Game Boy 8-bit tasarım şartnamesi
+├── PRODUCT.md              # Ürün şartnamesi
+├── RETRO_ARCHITECTURE.md   # Yerel yeniden yazımın boyut/çalışma zamanı gerekçesi
+├── NAMING.md               # Depo/ikili dosya adlandırma kararları
+├── TODO.md                 # Yol haritası
+└── README.md               # Kullanıcı ve geliştirici belgeleri
 ```
 
 ---
 
-## 3. Veri Akışı ve Olay Yönetimi
+## 3. Veri Akışı
 
-1. **URL Girişi**:
-   - Kullanıcı URL girdiğinde `detector.py` platformu regex ile tanır (`youtube`, `instagram`, `tiktok`, `twitter`, `generic`).
-2. **Metadata Çekimi (Asenkron Worker)**:
-   - UI donmaması için arka plan iş parçacığında `yt-dlp.YoutubeDL({'extract_flat': False})` ile sadece metadata (`extract_info(..., download=False)`) çekilir.
-   - Çekilen veri UI iş parçacığına `queue.Queue` üzerinden iletilir.
-3. **Format & Kodek Çözümlemesi (Saf Fonksiyon)**:
-   - `codec_selector.select_best_format(info_dict, mode="video", target_res="best", force_mp4=False)` saf fonksiyonu çalışır.
-   - Bu fonksiyon hiçbir yan etki (side-effect) içermez.
-   - Çıktı: Seçilen video format id, ses format id, beklenen konteyner uzantısı, dönüştürme gerekip gerekmediği ve gerekçesi.
-4. **İndirme ve İlerleme Raporu**:
-   - İndirme başlatıldığında `downloader.py` ayrı bir iş parçacığında çalışır.
-   - yt-dlp `progress_hooks` mekanizması indirme hızını, yüzdesini ve kalan süreyi thread-safe kuyruk ile UI'ya iletir.
-   - Arayüz 100ms aralıklarla bu kuyruğu tüketerek piksel ilerleme çubuğunu günceller.
-5. **İptal ve Tamamlanma**:
-   - İptal isteği bayrak (`threading.Event`) ile güvenli şekilde yt-dlp'ye iletilir.
-   - İndirme tamamlandığında Windows Toast bildirimi / arayüz bildirimi verilir.
+1. **URL girişi ve doğrulama**
+   - `detector.c` URL'yi doğrular (http/https, uzunluk, tırnak/ters bölü/kontrol
+     karakteri yok) ve platformu tespit eder (`youtube`, `tiktok`, `instagram`,
+     `twitter`, `generic`).
+2. **Metadata çekimi (asenkron)**
+   - `ui.c`, `engine_fetch_async()` çağırır. `engine.c` bir worker thread başlatır
+     (`CreateThread`) ve gizli borularla (`CreateProcessW` + `CreatePipe`)
+     `yt-dlp.exe --dump-json --no-playlist --no-warnings "<url>"` komutunu çalıştırır.
+   - stdout yalnızca JSON taşır; stderr ayrı bir iş parçacığında sürekli boşaltılır,
+     böylece alt süreç dolu boru yüzünden asla kilitlenmez.
+   - JSON `cjson.c` ile ayrıştırılır; format girdileri sabit `MAX_FORMATS` (256)
+     dizisinde tutulur. Sınıra ulaşıldığında yt-dlp'nin kötüden iyiye sıralı
+     listesinin sonundan alınarak **en iyi** formatlar korunur.
+3. **Kodek çözümlemesi (saf fonksiyon)**
+   - `codec_selector.c` içindeki `select_best_format()` yan etkisizdir. Format listesi,
+     mod (`video`/`audio`), hedef çözünürlük, MP4 zorlama bayrağı ve ses tercihi
+     verildiğinde seçilen format kimliğini, beklenen konteyneri, yeniden kodlama
+     gerekip gerekmediğini, gerekçe metnini ve isteğe bağlı uyarıyı döndürür.
+4. **İndirme ve ilerleme**
+   - `engine_download_async()` aynı worker modelinde çalışır. yt-dlp,
+     `percent|speed|eta|downloaded|total` satırları yazdıran bir `--progress-template`
+     ile başlatılır; her satır ayrıştırılıp arayüze `WM_USER_DOWNLOAD_TICK` olarak
+     gönderilir.
+   - Nihai dosya yolu, konsol kod sayfasından tahmin edilmek yerine yt-dlp tarafından
+     UTF-8 bir geçici dosyaya yazılır (`--print-to-file after_move:filepath`); böylece
+     Türkçe/emoji başlıklar doğru yola çözülür.
+5. **İptal ve tamamlanma**
+   - İptal isteği, tüm süreç ağacını (yt-dlp ve varsa ffmpeg alt süreci) tutan Job
+     Object'i sonlandırır; yetim süreç kalmaz.
+   - Hata durumunda yalnızca bu çalıştırmada oluşan ara dosyalar zaman damgasına göre
+     temizlenir; nihai/işlenmiş çıktı asla silinmez.
+   - Arayüz `finished`, `cancelled` veya `error` alır; durum satırını, tray ipucunu ve
+     pencereleri günceller.
 
 ---
 
-## 4. Kodek ve Konteyner Seçim Motoru (Deterministik Kural Motoru)
+## 4. Kodek ve Konteyner Seçim Motoru
 
-### Video Öncelik Sıralaması:
+### Video önceliği
 $$\text{AV1} > \text{VP9} > \text{H.265 (HEVC)} > \text{H.264 (AVC)}$$
 
-### Ses Öncelik Sıralaması:
+### Ses önceliği
 $$\text{Opus} > \text{AAC} > \text{MP3}$$
 
-### Kurallar:
-1. **Stream Copy (Remux) Önceliği**:
-   Eğer seçilen video akışı ve ses akışı doğal olarak bir MP4 veya MKV/WebM konteynerinde re-encode olmadan paketlenebiliyorsa, ffmpeg `-c copy` (stream copy) kullanılır. CPU ve zaman harcanmaz.
-2. **"MP4 Olarak Kaydet" Mantığı**:
-   - Kullanıcı "MP4 Olarak Kaydet" seçtiğinde:
-     - Kaynakta H.264 + AAC akışları varsa doğrudan bunlar seçilir ve remux edilir (sıfır kalite kaybı, sıfır işlemci yükü).
-     - Kaynakta sadece VP9 veya AV1 varsa, kullanıcının seçimine göre ya MKV/WebM olarak remux edilir ya da ffmpeg ile H.264 dönüştürmesi açık uyarı verilerek yapılır.
-3. **TikTok ve Instagram Durumu**:
-   - Bu platformlar neredeyse her zaman tek bir birleşik H.264 + AAC MP4 akışı sunar. Fonksiyon bunu tespit edip gereksiz hiçbir ayırma/birleştirme yapmadan doğrudan ham akışı indirir.
+### Kurallar
+1. **Önce stream copy**: seçilen akışlar yeniden kodlanmadan MP4, WebM veya MKV içine
+   paketlenebiliyorsa yt-dlp bunları `-c copy` (`--merge-output-format`) ile birleştirir.
+   CPU zamanı harcanmaz.
+2. **MP4 zorla**:
+   - H.264 + AAC kaynaklar doğrudan kopyalanır (sıfır kayıp, sıfır CPU).
+   - VP9/AV1 video + Opus ses: yalnızca ses AAC'ye çevrilir, video kopyalanır
+     (`--ppa "Merger:-c:v copy -c:a aac"`).
+   - H.264'e dönüştürülmesi gereken VP9 video, indirme başlamadan önce arayüzde açık
+     bir uyarı gösterilerek yeniden kodlanır.
+3. **TikTok / Instagram**: bu platformlar genellikle tek parça H.264+AAC MP4 akışı
+   sunar; ayırma/birleştirme adımı olmadan doğrudan indirilir.
+4. **Doğrudan medya dosyaları** (`.mp4`, `.webm`, ...): yt-dlp iki akış için de kodek
+   bilgisi bildirmediğinde dosya doğrudan kaydedilir; ses modunda ffmpeg ile çıkarılır
+   veya dönüştürülür.
 
 ---
 
-## 5. Tray (Sistem Tepsisi) Yaşam Döngüsü ve Bellek Optimizasyonu
+## 5. İş Parçacıkları, Arayüz ve Çizim
 
-WhatsApp / Steam modelinde çalışır:
-- **Pencere Kapatma Olayı (`WM_DELETE_WINDOW`)**:
-  - `window.destroy()` veya `window.withdraw()` çağrılır.
-  - Önbellekteki küçük resimler (thumbnail) ve geçici veri nesneleri `None` yapılarak Python Garbage Collector (`gc.collect()`) tetiklenir.
-  - RAM tüketimi 10-15 MB aralığına iner.
-  - Arka planda yalnızca hafif `pystray` döngüsü ve eğer varsa indirme iş parçacığı kalır.
-- **Tray İkonuna Sol Tık**:
-  - Pencere anında yeniden görünür yapılır (`window.deiconify()`), öne odaklanır (`lift()`).
-- **Tamamen Çıkış (`WM_QUIT`)**:
-  - Eğer aktif bir indirme sürüyorsa: Tray veya diyalog üzerinden "Devam eden indirme var. İptal edilip çıkılsın mı?" onay penceresi açılır.
-  - Kullanıcı onaylarsa indirme iş parçacığı güvenle durdurulur ve uygulama kapatılır.
-- **Tekil Örnek (Single Instance)**:
-  - Windows Adlandırılmış Mutex (`CreateMutexW`) kullanılarak uygulamanın birden fazla kopyasının aynı anda çalışması engellenir. İkinci kopya açıldığında mevcut pencere öne getirilir.
-
----
-
-## 6. Güvenlik ve Hata Yönetimi
-
-1. **Komut Enjeksiyonu Önleme**:
-   - yt-dlp doğrudan Python modülü olarak import edilir (`import yt_dlp`). Asla `subprocess.Popen("yt-dlp " + url)` şeklinde komut dizesi birleştirilmez.
-   - ffmpeg çağrılarında daima argüman listesi (`args=['ffmpeg', '-i', ...]`, `shell=False`) kullanılır.
-2. **Yol Aşımı (Path Traversal) ve Dosya Adı Temizliği**:
-   - `re.sub(r'[<>:"/\\|?*]', '_', title)` ve Unicode normalizasyonu uygulanır.
-   - Dosya yolu işletim sistemi sınırları (MAX_PATH) ve `..` güvenlik açığına karşı sanitize edilir.
-3. **Açıklayıcı Hata Mesajları**:
-   - Özel/silinmiş video: *"Bu video gizli veya platformdan kaldırılmış."*
-   - Ağ hatası: *"İnternet bağlantısı kesildi. Lütfen bağlantınızı kontrol edin."*
-   - ffmpeg eksikliği: *"Gerekli medya dönüştürücü (ffmpeg) bulunamadı. Lütfen kurulumu onarın."*
+- **UI iş parçacığı**: tüm pencerelerin ve kontrollerin sahibidir. Bütün çizim UI iş
+  parçacığında GDI ile yapılır.
+- **Worker iş parçacıkları**: aynı anda tek metadata/indirme worker'ı çalışır.
+  `engine_is_busy()` durumu bildirir; arayüz asla üst üste iş başlatmaz.
+- **Mesaj aktarımı**: worker hiçbir UI nesnesine dokunmaz; `PostMessage(WM_USER_*)`
+  çağırır ve sonucu UI iş parçacığı okur.
+- **Özel çizim arayüzü**: butonlar, seçim çipleri, onay kutusu, açılır liste, ilerleme
+  çubuğu, başlık çubuğu ve modal pencereler `gb_ui.c` ile çizilir. Tek yerel kontrol,
+  IME/pano/seçim güvenilirliği için URL `EDIT` kutusudur.
+- **Sabit yerleşim**: 646×485 tasarım birimi, Per-Monitor V2 DPI ile ölçeklenir
+  (`gb_scale` / `S()`). Medya alanının yüksekliği sabittir; pencere zıplamaz.
+- **Tray yaşam döngüsü**: kapatma pencereyi gizler (`SW_HIDE`) ve bir kerelik bildirim
+  gösterir; tray menüsü geri yükler veya çıkar. Explorer yeniden başladığında ikon
+  `TaskbarCreated` mesajıyla yeniden kaydedilir.
+- **Toast penceresi**: ayrı bir `WS_POPUP` pencere çekilen medyayı 4 saniye gösterir;
+  üzerine gelmek sayacı sıfırlar.
 
 ---
 
-## 7. Paketleme, Kurulum ve Güncelleme
+## 6. Tekil Örnek ve Komut Satırı
 
-### A. Kurulum (Inno Setup)
-- Tek bir `Setup.exe` üretilir.
-- Kurulum dizini: `%LOCALAPPDATA%\Programs\ff-dlp-viewer` (Yönetici yetkisi gerektirmez, UAC penceresiyle kullanıcıyı korkutmaz).
-- Başlat Menüsü kısayolu ve Masaüstü simgesi oluşturulur.
-- İsteğe bağlı `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` ile "Windows ile tray'de başlat" seçeneği.
-- Temiz kaldırma (Uninstall.exe) desteği.
+- `CreateMutexW(Local\ff-dlp-viewer)` tek örneği garanti eder; ikinci başlatma mevcut
+  pencereyi (`FindWindowW(UI_WINDOW_CLASS)`) bulup öne getirir.
+- `--url <URL>` / `--url=URL` bağlantıyı açık pencereye `WM_COPYDATA` ile gönderir.
+- `--help` / `--version` mesaj penceresi gösterip çıkar.
 
-### B. ff-dlp Bağımsız Paketleme
-- PyInstaller ile `--onedir` veya optimize `--onefile` derlenir.
-- Gömülü Python çalışma ortamı pakete dahildir.
-- ffmpeg ikilisi uygulamanın kendi `bin/` klasöründe yer alır; sistem `PATH` ortam değişkenine dokunulmaz.
+---
 
-### C. Güncelleme Mekanizması
-- **Uygulama Güncellemesi**: GitHub API'den son sürüm etiketi kontrol edilir (`/repos/{user}/{repo}/releases/latest`). Yeni sürüm varsa değişiklik notları ve indirme bağlantısı gösterilir; indirilen yeni `Setup.exe` için `SHA-256` doğrulaması yapılır.
-- **İndirme Motoru (yt-dlp) Güncellemesi**: PyPI JSON API (`https://pypi.org/pypi/yt-dlp/json`) üzerinden yt-dlp'nin en güncel kararlı sürümü sorgulanır ve kurulu sürümle CalVer karşılaştırması yapılır. Platform algoritmalarındaki güncellemeler kullanıcıya sistem tepsisinden tek tıkla şeffafça bildirilir.
-- Onay verildiğinde eski uygulama kapatılır, yeni setup güvenle çalıştırılır.
+## 7. Araç Bootstrapper'ı ve Güncellemeler
+
+- Açılışta `bootstrapper_ensure_tools()` `yt-dlp.exe` ve `ffmpeg.exe` dosyalarını şu
+  sırayla arar: uygulama dizini → app\bin → ..\bin →
+  `%LOCALAPPDATA%\ff-dlp-viewer\bin` → sistem `PATH`.
+- Eksik araçlar URLMon `IBindStatusCallback` API'siyle uygulamanın kendi `bin/`
+  klasörüne indirilir. Dosyalar `.tmp` olarak yazılır ve yalnızca aktarım tamamlanınca
+  yerine taşınır; başarısız taşıma "başarılı" gibi gösterilmez.
+- Sistem `PATH` değişkeni asla değiştirilmez.
+- Tray menüsündeki "Check for Updates (yt-dlp)" en son `yt-dlp.exe` sürümünü indirir ve
+  uygulamanın gerçekten kullandığı kopyayı hedefler.
+
+---
+
+## 8. Hata Yönetimi ve Güvenlik
+
+1. **Kabuk komutu birleştirme yok**: araçlar `CreateProcessW` ile ve doğrulanmış
+   değerlerden kurulan bir argüman dizesiyle başlatılır; URL'lerde tırnak, ters bölü ve
+   kontrol karakterleri reddedilir.
+2. **Yol güvenliği**: `sanitization.c` Windows'a ayrılmış karakterleri temizler, yol
+   aşımını (`..`) engeller, ayrılmış adları (CON, PRN, AUX, NUL, COM1–9, LPT1–9)
+   işler, boşlukları toparlar ve uzunluk sınırlarını uygular.
+3. **İnsan diliyle hatalar**: motor hataları sade mesajlara çevrilir (özel video,
+   oturum/yaş gereksinimi, HTTP 403, ağa ulaşılamıyor, ffmpeg eksik, format mevcut
+   değil) ve Game Boy mesaj kutusunda gösterilir.
+4. **Sınırlı kaynaklar**: sabit boyutlu format tablosu (256), sınırlı ilerleme
+   tamponları, sürekli boşaltılan stderr ve yalnızca bir iş parçacığının zaman aşımını
+   aşabildiği yerlerde belgelenmiş bilinçli sızıntılar.
+
+---
+
+## 9. Paketleme ve Boyut Bütçesi
+
+- `build.bat` `windres` çalıştırır, `gcc -O3 -s -flto -static -mwindows` ile derler ve
+  1 MB üzerindeki boyutu hata olarak reddeder.
+- Kurulum dosyası Inno Setup (`installer/setup.iss`) ile `%LOCALAPPDATA%` altına
+  yönetici izni gerektirmeyen kullanıcı bazlı kurulum olarak üretilir.
+- Mevcut çıktı: ~343 KB çalıştırılabilir dosya, ~10-15 MB boşta RAM.
+
+---
+
+## 10. Testler
+
+`tests/test_core.c` şunları kapsar:
+- platform tespiti ve ana makine eşleştirme,
+- dosya adı temizliği (yasak karakterler, yol aşımı, ayrılmış adlar, uzunluk),
+- YouTube/TikTok/Instagram/X tarzı format kümelerinde deterministik kodek seçimi,
+- MP4 zorlama davranışı (kopyalama / yalnızca ses dönüştürme / tam yeniden kodlama),
+- Unicode kaçışları, vekil çiftler, derinlik sınırları ve kesik girdi dahil cJSON
+  ayrıştırma.

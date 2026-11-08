@@ -1,6 +1,6 @@
-# ff-dlp-viewer-light: Ultra-Lightweight Native C Win32 Mimarisi (< 1 MB)
+# ff-dlp-viewer: Native Retro C Win32 Mimarisi (< 1 MB)
 
-Bu dal (`light`), Python/PyInstaller çalışma zamanı şişkinliğini (bloat) tamamen ortadan kaldırmak ve uygulamayı **saf C (C11) / yerel Win32 API** ile yeniden inşa etmek amacıyla oluşturulmuştur.
+Bu sürüm, Python/PyInstaller çalışma zamanı şişkinliğini (bloat) tamamen ortadan kaldırır; uygulama **saf C (C11) / yerel Win32 API** ve Game Boy esintili 8-bit arayüz ile inşa edilmiştir.
 
 ---
 
@@ -13,8 +13,8 @@ Bu dal (`light`), Python/PyInstaller çalışma zamanı şişkinliğini (bloat) 
 
 2. **Dosya Boyutu ve Performans:**
    * **Hedef:** < 1 MB (İdeal: 150 KB – 300 KB).
-   * **Gerçekleşen Boyut:** **~341 KB** (349.184 bayt).
-   * **Boşta RAM Ayak İzi:** < 10 MB (Python sürümündeki 60-70 MB'a kıyasla ~%85 tasarruf).
+   * **Gerçekleşen Boyut:** **~343 KB** (351.232 bayt).
+   * **Boşta RAM Ayak İzi:** 10-15 MB (Python sürümündeki 60-70 MB'a kıyasla ~%85 tasarruf).
    * **Açılış Süresi:** < 15 ms (neredeyse anında).
 
 3. **Modüler Çekirdek (Arayüzden Bağımsız C Katmanı):**
@@ -71,7 +71,7 @@ tests\test_core.exe
 Test çıktısı:
 ```
 ==========================================
-RUNNING FF-DLP-VIEWER LIGHT C UNIT TESTS
+RUNNING FF-DLP-VIEWER C UNIT TESTS
 ==========================================
 [TEST] Detector testing...
   -> Detector tests PASSED!

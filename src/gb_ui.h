@@ -13,29 +13,22 @@
 #define GB_LIGHT     RGB(0x8B, 0xAC, 0x0F)
 #define GB_LIGHTEST  RGB(0x9B, 0xBC, 0x0F)
 
-/* Corner style.
-   GB_CORNER_CHAMFER: stepped 45-degree cut corner (8-bit language).
-   GB_CORNER_SMOOTH : anti-aliased rounded corner.
-   The default is chosen at build time with GB_CORNER_DEFAULT; preview
-   builds override it with -DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH. */
-#define GB_CORNER_CHAMFER 0
-#define GB_CORNER_SMOOTH  1
-
+/* Corner style: stepped 45-degree cut (8-bit language), never anti-aliased. */
 int  gb_radius(int large);
 
-/* Rounded (or chamfered) fill and frame.
+/* Chamfered fill and frame.
    bg: color of the area outside the corner (background).
    inner: color that fills the inside of the frame. */
 void gb_fill_round(HDC hdc, const RECT *rc, COLORREF color, COLORREF bg);
 void gb_frame_round(HDC hdc, const RECT *rc, COLORREF color, int thickness,
                     COLORREF bg, COLORREF inner, int large);
 
-/* Rounds the window corners (region based; no AA). */
+/* Cuts the window corners (region based; no AA). */
 void gb_round_window(HWND hWnd, int large);
 
 /* Hard (2 px) shadow shaped like the body, offset to the bottom-right.
    The shadow is clipped to the area outside the body, so
-   rounded corners do not get a notch. */
+   cut corners do not get a notch. */
 void gb_shadow(HDC hdc, const RECT *body, int offset, COLORREF color);
 
 /* Owner-draw denetim rolleri */

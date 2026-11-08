@@ -163,12 +163,8 @@ iptali tetikler. Sahip pencere modal sırasında devre dışıdır.
 - Palet ve çizim ilkelleri: `src/gb_ui.h`, `src/gb_ui.c`.
 - Köşe/gölge ilkelleri: `gb_fill_round`, `gb_frame_round`, `gb_shadow`,
   `gb_round_window`. Yarıçaplar `GB_RADIUS_SMALL` (3) / `GB_RADIUS_LARGE` (5).
-- Köşe biçimi derleme zamanında `GB_CORNER_DEFAULT` ile seçilir; önizleme
-  derlemesi `-DGB_CORNER_DEFAULT=GB_CORNER_SMOOTH` ile alınır.
-- `-DGB_PREVIEW` ayrı mutex kullanır; önizleme, kurulu uygulamayla aynı anda
-  çalışabilir.
 - Ana pencere, yerleşim ve durum yönetimi: `src/ui.c`.
 - Ölçekleme: `gb_scale()` / `S()` — 96 DPI taban, Per-Monitor V2.
-- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~345 KB.
+- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~343 KB.
 - Yeni bileşen eklerken: rengi paletten seç, 2 px çerçeve kullan, beş durumu
   (normal, hover, basılı, pasif, odak) çiz, metni Türkçe tut.

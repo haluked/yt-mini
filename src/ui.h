@@ -9,7 +9,7 @@
 #define WM_USER_TRAY_ICON       (WM_USER + 103)
 #define WM_USER_AUTOFETCH_DONE  (WM_USER + 104)
 
-#define UI_WINDOW_CLASS L"FfDlpViewerLightWindow"
+#define UI_WINDOW_CLASS L"FfDlpViewerWindow"
 
 int ui_run(HINSTANCE hInstance, int nCmdShow, const wchar_t *initial_url);
 

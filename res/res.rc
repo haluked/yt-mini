@@ -17,9 +17,9 @@ BEGIN
         BLOCK "040904B0" // English (US) (0409), Unicode (04B0)
         BEGIN
             VALUE "CompanyName",      "Haluk"
-            VALUE "FileDescription",  "Lightweight Media Downloader (Win32 Native)"
+            VALUE "FileDescription",  "Retro Media Downloader (Win32 Native)"
             VALUE "FileVersion",      "2.3.0.0"
-            VALUE "InternalName",     "ff-dlp-viewer-light"
+            VALUE "InternalName",     "ff-dlp-viewer"
             VALUE "LegalCopyright",   "MIT License"
             VALUE "OriginalFilename", "ff-dlp-viewer.exe"
             VALUE "ProductName",      "ff-dlp-viewer"

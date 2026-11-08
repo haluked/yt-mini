@@ -46,7 +46,7 @@ Unlike bloated downloaders full of unnecessary "AI dashboard" decoration, hundre
 
 - **Style**: Game Boy DMG 8-bit aesthetic: only 4 shades of green, pixel-stepped (chamfered) corners, hard 2 px frames/shadows, system `Consolas` font (anti-aliasing off). No external image/font files.
 - **Anti-pattern bans**: No gradients, glow, blurred shadows, anti-aliased (blurry) corners, OS-drawn controls (combobox/radio/checkbox), emoji icons or generic AI-style cards, ever.
-- **Language**: Fully English, plain terminology. The Turkish interface is preserved on the `design/gb-retro` branch.
+- **Language**: Fully English, plain terminology.
 
 ## Product Principles
 
