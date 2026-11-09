@@ -36,9 +36,10 @@ doğrulanması gereken liste:
   - `build.bat` yerel çalıştırılabilir dosyayı boyut doğrulamasıyla derliyor.
   - İlk çalıştırma bootstrapper'ı eksikse yt-dlp/ffmpeg indiriyor.
 
-- [x] **Tek Aktif Sürüm**:
-  - Güncel sürüm `v2.4.0`; tek aktif sürüm çizgisi var.
-  - GitHub'da tek release ve tek tag kalıyor. Eski release/asset'ler kaldırılıyor.
+- [x] **Güncel Sürüm**:
+  - Güncel sürüm `v2.4.0`; GitHub'daki en son release.
+  - `v2.4.0` release'i uygulama, portable ZIP, Setup ve bootstrapper'ın kullandığı `ffmpeg.exe` asset'ini içerir.
+  - Eski release'ler tarihsel kayıt olarak kalabilir; `latest` adresi her zaman en yeni release'e gider.
   - Bootstrapper'ın `releases/latest/download/ffmpeg.exe` adresi çalışsın diye
     `ffmpeg.exe` release asset'i olarak yükleniyor.
 
@@ -46,5 +47,5 @@ doğrulanması gereken liste:
   - `LICENSE` projenin GNU GPLv3 metnidir. `THIRD_PARTY_NOTICES.md`; yt-dlp (The Unlicense), FFmpeg (GPLv3, Gyan essentials statik build), cJSON (MIT) ve MinGW-w64 runtime istisnasını listeler.
   - FFmpeg ayrı bir çalıştırılabilir dosya olarak dağıtılır; tam kaynak commit'i ve build kaynağı `THIRD_PARTY_NOTICES.md` içindedir.
 
-- [ ] **Kullanıcı Onayı ve GitHub Push**:
-  - Haluk onaylayana kadar GitHub'a hiçbir push yapılmaz.
+- [x] **Kullanıcı Onayı ve GitHub Push**:
+  - Haluk GPLv3 lisans değişikliğini ve GitHub güncellemesini onayladı; `main` ve `v2.4.0` release'i yayınlandı.
