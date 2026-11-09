@@ -1,4 +1,4 @@
-# ff-dlp-viewer (v2.3.1)
+# ff-dlp-viewer (v2.3.2)
 
 **English** · [Türkçe](README.tr.md)
 

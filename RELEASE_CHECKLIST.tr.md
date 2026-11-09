@@ -37,7 +37,7 @@ doğrulanması gereken liste:
   - İlk çalıştırma bootstrapper'ı eksikse yt-dlp/ffmpeg indiriyor.
 
 - [x] **Tek Aktif Sürüm**:
-  - Güncel sürüm `v2.3.1`; tek aktif sürüm çizgisi var.
+  - Güncel sürüm `v2.3.2`; tek aktif sürüm çizgisi var.
   - GitHub'da tek release ve tek tag kalıyor. Eski release/asset'ler kaldırılıyor.
   - Bootstrapper'ın `releases/latest/download/ffmpeg.exe` adresi çalışsın diye
     `ffmpeg.exe` release asset'i olarak yükleniyor.

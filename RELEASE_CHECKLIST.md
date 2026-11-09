@@ -38,7 +38,7 @@ Checklist to verify before ff-dlp-viewer is published on GitHub or shipped to en
   - First-run bootstrapper downloads yt-dlp/ffmpeg when missing.
 
 - [x] **Single Active Version**:
-  - The current version is `v2.3.1`; only one active release line exists.
+  - The current version is `v2.3.2`; only one active release line exists.
   - Only one release and one tag remain on GitHub. Older releases/assets are removed.
   - `ffmpeg.exe` is uploaded as a release asset so
     `releases/latest/download/ffmpeg.exe` keeps working for the bootstrapper.
