@@ -36,6 +36,7 @@ Checklist to verify before ff-dlp-viewer is published on GitHub or shipped to en
   - `installer/setup.iss` provides an English Inno Setup installer (per-user `%LOCALAPPDATA%`, no admin rights).
   - `build.bat` compiles the native executable with size verification.
   - First-run bootstrapper downloads yt-dlp/ffmpeg when missing.
+  - Release builds place the static Gyan essentials `ffmpeg.exe` in `bin/`; `installer/build.py` refuses a shared/minimal system FFmpeg.
 
 - [x] **Current Release**:
   - The current version is `v2.4.0`; it is the latest GitHub release.

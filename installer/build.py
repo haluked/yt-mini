@@ -52,6 +52,23 @@ def ensure_binaries():
 
         sys_path = shutil.which(binary)
         if sys_path and os.path.isfile(sys_path):
+            candidate = Path(sys_path)
+            try:
+                size = candidate.stat().st_size
+            except OSError:
+                size = 0
+
+            # A shared FFmpeg build has a tiny launcher exe plus avcodec-*.dll
+            # files. Copying only the exe would produce a broken portable
+            # package. Release builds must use the static Gyan essentials file.
+            is_shared_ffmpeg = binary == "ffmpeg" and any(
+                candidate.parent.glob("avcodec-*.dll")
+            )
+            if binary == "ffmpeg" and (is_shared_ffmpeg or size < 5 * 1024 * 1024):
+                print(f"[WARNING] {sys_path} looks like a shared/minimal FFmpeg build.")
+                print("[WARNING] Place the static Gyan essentials ffmpeg.exe in bin/ for a release.")
+                continue
+
             print(f"Found {binary} on the system: {sys_path}")
             print(f"Copying -> {target}")
             shutil.copy2(sys_path, target)

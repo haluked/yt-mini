@@ -35,6 +35,7 @@ doğrulanması gereken liste:
   - `installer/setup.iss` İngilizce Inno Setup kurulumu sağlıyor (kullanıcı bazlı `%LOCALAPPDATA%`, yönetici izni yok).
   - `build.bat` yerel çalıştırılabilir dosyayı boyut doğrulamasıyla derliyor.
   - İlk çalıştırma bootstrapper'ı eksikse yt-dlp/ffmpeg indiriyor.
+  - Release build'lerinde `bin/` içine statik Gyan essentials `ffmpeg.exe` konur; `installer/build.py` shared/minimal sistem FFmpeg'ini kopyalamayı reddeder.
 
 - [x] **Güncel Sürüm**:
   - Güncel sürüm `v2.4.0`; GitHub'daki en son release.
