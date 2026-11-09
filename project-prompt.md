@@ -1,5 +1,8 @@
 # Görev: Windows için hafif, tray'de yaşayan yt-dlp tabanlı video/ses indirme uygulaması
 
+> **Tarihsel not:** Bu dosya projenin ilk Python prototipi dönemindeki görev tanımıdır.
+> Güncel uygulama yerel C11/Win32 sürümüdür; bkz. [README.md](README.md).
+
 ## Genel hedef
 yt-dlp ve ffmpeg'i arka planda kullanan, terminal bilgisi gerektirmeyen, sade bir Windows masaüstü uygulaması geliştir. Ana öncelikler: çok düşük RAM/CPU kullanımı, doğru kodek/konteyner seçimi ve temiz, "AI yapımı" hissi vermeyen bir arayüz. Daha önce prototipleri yapıldı ve beğenilmedi (kırılgan mimari, sürekli küçük hatalar). Bu yüzden sıfırdan, sağlam ve test edilebilir bir mimariyle yaz.
 
