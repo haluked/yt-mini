@@ -524,11 +524,16 @@ void gb_draw_control(const DRAWITEMSTRUCT *dis, HFONT font, int role,
 /* ---------------------------------------------------------------- popup */
 
 #define GB_DROP_CLASS L"GbDropPopupWnd"
+#define GB_DROP_MAX_ITEMS 32
+#define GB_DROP_ITEM_CHARS 128
 
 typedef struct {
     HWND hwnd;
     HWND owner;
-    const wchar_t *const *items;
+    /* Own copy of the rows. The caller's array/strings may live on its stack and
+       become invalid as soon as gb_dropdown_open() returns, while the popup is
+       still open and repainting. */
+    wchar_t items[GB_DROP_MAX_ITEMS][GB_DROP_ITEM_CHARS];
     int count;
     int selected;
     int hover;
@@ -699,6 +704,7 @@ int gb_dropdown_open(HWND owner, const RECT *anchor,
     int width, height, x, y;
     int max_width = 0;
     int i;
+    int n;
     HMONITOR mon;
     MONITORINFO mi;
     int text_px;
@@ -722,9 +728,13 @@ int gb_dropdown_open(HWND owner, const RECT *anchor,
 
     memset(&g_drop, 0, sizeof(g_drop));
     g_drop.owner = owner;
-    g_drop.items = items;
-    g_drop.count = count;
-    g_drop.selected = selected >= 0 && selected < count ? selected : 0;
+    n = count > GB_DROP_MAX_ITEMS ? GB_DROP_MAX_ITEMS : count;
+    g_drop.count = n;
+    for (i = 0; i < n; i++) {
+        wcsncpy(g_drop.items[i], items[i], GB_DROP_ITEM_CHARS - 1);
+        g_drop.items[i][GB_DROP_ITEM_CHARS - 1] = L'\0';
+    }
+    g_drop.selected = (selected >= 0 && selected < n) ? selected : 0;
     g_drop.hover = g_drop.selected;
     g_drop.cb = cb;
     g_drop.user = user;
@@ -744,9 +754,9 @@ int gb_dropdown_open(HWND owner, const RECT *anchor,
     {
         HDC dc = GetDC(owner);
         HGDIOBJ old = SelectObject(dc, g_drop.font);
-        for (i = 0; i < count; i++) {
+        for (i = 0; i < n; i++) {
             SIZE sz;
-            if (GetTextExtentPoint32W(dc, items[i], (int)wcslen(items[i]), &sz)) {
+            if (GetTextExtentPoint32W(dc, g_drop.items[i], (int)wcslen(g_drop.items[i]), &sz)) {
                 if (sz.cx > max_width) max_width = sz.cx;
             }
         }
@@ -762,7 +772,7 @@ int gb_dropdown_open(HWND owner, const RECT *anchor,
     width = ar.right - ar.left;
     if (width < max_width + gb_scale(34)) width = max_width + gb_scale(34);
     if (width < gb_scale(160)) width = gb_scale(160);
-    height = count * g_drop.row_h + g_drop.pad * 2 + gb_scale(2);
+    height = n * g_drop.row_h + g_drop.pad * 2 + gb_scale(2);
 
     mon = MonitorFromWindow(owner, MONITOR_DEFAULTTONEAREST);
     mi.cbSize = sizeof(mi);

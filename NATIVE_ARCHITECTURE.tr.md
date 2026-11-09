@@ -15,7 +15,7 @@ Uygulama, Python/PyInstaller çalışma zamanı şişkinliğini (bloat) tamamen 
 
 2. **Dosya Boyutu ve Performans:**
    * **Hedef:** < 1 MB (İdeal: 150 KB – 300 KB).
-   * **Gerçekleşen Boyut:** **~343 KB** (351.232 bayt).
+   * **Gerçekleşen Boyut:** **~351 KB** (359.424 bayt).
    * **Boşta RAM Ayak İzi:** 10-15 MB (Python sürümündeki 60-70 MB'a kıyasla ~%85 tasarruf).
    * **Açılış Süresi:** < 15 ms (neredeyse anında).
 

@@ -16,7 +16,7 @@ The app removes the Python/PyInstaller runtime bloat entirely and is built with
 
 2. **Binary size and performance:**
    * **Target:** < 1 MB (ideal: 150 KB – 300 KB).
-   * **Achieved size:** **~343 KB** (351,232 bytes).
+   * **Achieved size:** **~351 KB** (359,424 bytes).
    * **Idle RAM footprint:** < 15 MB (about 85% less than 60–70 MB in the Python version).
    * **Startup time:** < 15 ms (almost instant).
 

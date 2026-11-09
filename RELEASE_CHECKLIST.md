@@ -15,7 +15,7 @@ Checklist to verify before ff-dlp-viewer is published on GitHub or shipped to en
   - File sanitization (Windows reserved characters, path traversal, reserved names, MAX_PATH) is verified.
 
 - [x] **Size and Performance**:
-  - `build.bat` verifies the executable stays under 1 MB (current: ~343 KB).
+  - `build.bat` verifies the executable stays under 1 MB (current: ~351 KB).
   - Idle RAM measured at ~10–15 MB.
   - No external runtime: only native Windows system DLLs are linked.
 

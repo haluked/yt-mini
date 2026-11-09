@@ -2340,7 +2340,12 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 if (hText) {
                     const char *pStr = (const char*)GlobalLock(hText);
                     if (pStr) {
-                        MultiByteToWideChar(CP_ACP, 0, pStr, -1, clip_text, 1024);
+                        /* MultiByteToWideChar(-1) includes the terminator. Pass one
+                           slot less than the buffer and force termination, otherwise a
+                           long ANSI string can leave the buffer unterminated. */
+                        int conv = MultiByteToWideChar(CP_ACP, 0, pStr, -1, clip_text, 1023);
+                        if (conv <= 0) clip_text[0] = L'\0';
+                        clip_text[1023] = L'\0';
                         GlobalUnlock(hText);
                     }
                 }

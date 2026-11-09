@@ -165,6 +165,6 @@ iptali tetikler. Sahip pencere modal sırasında devre dışıdır.
   `gb_round_window`. Yarıçaplar `GB_RADIUS_SMALL` (3) / `GB_RADIUS_LARGE` (5).
 - Ana pencere, yerleşim ve durum yönetimi: `src/ui.c`.
 - Ölçekleme: `gb_scale()` / `S()` — 96 DPI taban, Per-Monitor V2.
-- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~343 KB.
+- Boyut bütçesi: **< 1 MB zorunlu**; mevcut derleme ~351 KB.
 - Yeni bileşen eklerken: rengi paletten seç, 2 px çerçeve kullan, beş durumu
   (normal, hover, basılı, pasif, odak) çiz, metni Türkçe tut.

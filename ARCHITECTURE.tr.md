@@ -197,7 +197,7 @@ $$\text{Opus} > \text{AAC} > \text{MP3}$$
   1 MB üzerindeki boyutu hata olarak reddeder.
 - Kurulum dosyası Inno Setup (`installer/setup.iss`) ile `%LOCALAPPDATA%` altına
   yönetici izni gerektirmeyen kullanıcı bazlı kurulum olarak üretilir.
-- Mevcut çıktı: ~343 KB çalıştırılabilir dosya, ~10-15 MB boşta RAM.
+- Mevcut çıktı: ~351 KB çalıştırılabilir dosya, ~10-15 MB boşta RAM.
 
 ---
 

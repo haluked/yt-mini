@@ -6,7 +6,7 @@
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
-[![Binary Size](https://img.shields.io/badge/Binary_Size-~343_KB-brightgreen?style=flat-square)](#)
+[![Binary Size](https://img.shields.io/badge/Binary_Size-~351_KB-brightgreen?style=flat-square)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-8CBE9C?style=flat-square)](LICENSE)
 
 ---
@@ -15,7 +15,7 @@
 
 **ff-dlp-viewer**, Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`) üzerinde saf C11 ile yazılmış yerel bir Windows uygulamasıdır. Python çalışma zamanı, PyInstaller veya Electron bağımlılığı yoktur.
 
-Nihai çalıştırılabilir dosya boyutu **yalnızca ~343 KB** olup, bellek tüketimi 10-15 MB civarındadır.
+Nihai çalıştırılabilir dosya boyutu **yalnızca ~351 KB** olup, bellek tüketimi 10-15 MB civarındadır.
 
 Bu yerel C11 derlemesi, uygulamanın bakımı yapılan tek sürümüdür.
 

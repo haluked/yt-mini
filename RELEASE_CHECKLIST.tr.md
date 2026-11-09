@@ -14,7 +14,7 @@ doğrulanması gereken liste:
   - Dosya adı temizliği (Windows yasak karakterler, yol aşımı, ayrılmış adlar, MAX_PATH) doğrulandı.
 
 - [x] **Boyut ve Performans**:
-  - `build.bat` çalıştırılabilir dosyanın 1 MB altında kaldığını doğruluyor (mevcut: ~343 KB).
+  - `build.bat` çalıştırılabilir dosyanın 1 MB altında kaldığını doğruluyor (mevcut: ~351 KB).
   - Boşta RAM ~10–15 MB ölçüldü.
   - Harici çalışma zamanı yok: yalnızca yerel Windows sistem DLL'lerine bağlanıyor.
 
