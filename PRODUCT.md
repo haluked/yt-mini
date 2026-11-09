@@ -1,4 +1,4 @@
-# Product: ff-dlp-viewer (Lightweight Media Downloader)
+# Product: ff-dlp-viewer
 
 **English** · [Türkçe](PRODUCT.tr.md)
 

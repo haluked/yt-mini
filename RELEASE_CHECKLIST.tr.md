@@ -36,6 +36,12 @@ doğrulanması gereken liste:
   - `build.bat` yerel çalıştırılabilir dosyayı boyut doğrulamasıyla derliyor.
   - İlk çalıştırma bootstrapper'ı eksikse yt-dlp/ffmpeg indiriyor.
 
+- [x] **Tek Aktif Sürüm**:
+  - Güncel sürüm `v2.3.1`; tek aktif sürüm çizgisi var.
+  - GitHub'da tek release ve tek tag kalıyor. Eski release/asset'ler kaldırılıyor.
+  - Bootstrapper'ın `releases/latest/download/ffmpeg.exe` adresi çalışsın diye
+    `ffmpeg.exe` release asset'i olarak yükleniyor.
+
 - [x] **Lisans Uyumluluğu**:
   - `LICENSE`, MIT Lisansı ile birlikte bağımsız ikili dosyalar olarak yt-dlp (The Unlicense) ve FFmpeg (LGPL v2.1+) kullanım şartlarını içeriyor.
 

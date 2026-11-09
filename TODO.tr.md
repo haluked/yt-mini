@@ -1,5 +1,7 @@
 # Gelecek Planları ve Yol Haritası (TODO)
 
+**Türkçe** · [English](TODO.md)
+
 ## 1. Pano Ön-Çekim Belleği ve Zaman Aşımı Yönetimi (Clipboard Fetch Memory Cache)
 - **Açıklama:** Kullanıcı YouTube bağlantısını kopyaladığında arka planda çekilen video/medya bilgileri hemen silinmeyip birkaç dakika (örn. 5-10 dakika) boyunca bellekte güvenli şekilde önbelleğe alınacak.
 - **Kullanım Senaryosu:**
@@ -20,16 +22,18 @@
 - **Bağlı iş:** İndirilen yt-dlp/ffmpeg dosyalarının **SHA-256 doğrulaması** (GitHub Releases API `digest` alanı kullanılabilir) bu aşamada birlikte eklenmeli. Ayrıca güncelleme "uygulamanın kullandığı kopyayı" hedeflemeye devam etmeli (bkz. bootstrapper düzeltmesi).
 
 ## 4. ffmpeg Dağıtım URL'i
-- **Açıklama:** `bootstrapper.c` içindeki FFMPEG_URL hâlâ **eski yt-mini deposunun** v2.0.0-beta release'ine bağlı. yt-mini-lite deposu açılıp ilk release yayınlandığında bu URL yeni depoya taşınmalı.
-- **Alternatif:** ffmpeg kaynağı olarak gyan.dev veya BtbN resmi yapıları + sabit SHA-256 (LGPL/GPL lisans notuyla). Karar: dağıtım mimarisi tartışmasında.
+- **Tamamlandı:** `bootstrapper.c` içindeki `FFMPEG_URL` artık kalıcı
+  `releases/latest/download/ffmpeg.exe` adresini gösteriyor; bu adres her zaman en yeni
+  sürümü takip eder.
+- **Sürüm kuralı:** Her sürümde `ffmpeg.exe` asset olarak yüklenmeli; aksi halde
+  bağımsız exe'nin ilk çalıştırma bootstrapper'ı dosyayı indiremez (bkz.
+  `RELEASE_CHECKLIST.md`).
+- **İleride:** İndirilen ffmpeg için sabit SHA-256 kontrolü eklenmeli (LGPL/GPL lisans
+  notuyla birlikte).
 
 ## 5. Kurulum Stratejisi (Architecture — tartışılacak)
 - **Karar (şimdilik):** yt-dlp + ffmpeg **her zaman uygulama klasörüne** (app-dir\bin veya %LOCALAPPDATA%\Programs\...\bin) kurulur; sistem PATH'ine DOKUNULMAZ. Böylece uygulama hep "portable mantığıyla" çalışır, kaldırma tertemiz olur.
 - **İleride:** PATH'e ekleme, installer'da **opsiyonel bir onay kutusu** olarak düşünülebilir (gelişmiş kullanıcılar için). Windows registry/ortam değişkeni değişikliği geri alınabilir olmalı.
 
-## 6. Kimlik/Marka Düzeltmesi (yt-mini-lite geçişi)
-- Mutex (`Local\ff-dlp-viewer`), registry anahtarı (`HKCU\Software\ff-dlp-viewer`), pencere sınıfı ve başlıklar hâlâ **ff-dlp-viewer** adını taşıyor. yt-mini-lite deposuna geçişte tek seferde, hepsi birden güncellenmeli (yarım rebrand = iki isim karışır).
-- Not: pencere sınıfı adı değişirse `main.c`'teki `FindWindowW(UI_WINDOW_CLASS, ...)` ikinci örnek aktarımı otomatik olarak yeni adı kullanır — iki tarafı aynı commit'te değiştirmek yeterli.
-
-## 7. Format Listesi Sınırı
-- MAX_FORMATS = 256 (bellek Challenge'ı gereği sabit). yt-dlp formatları kötüden iyiye sıraladığı için sınır aşılırsa artık **en iyiler korunarak** sondan alınıyor (bkz. engine.c parse_json_metadata). Nadir sitelerde 256'yı aşan listeler için ileride dinamik ayrım düşünülebilir; pratikte gerek yok.
+## 6. Format Listesi Sınırı
+- MAX_FORMATS = 256 (bellek gerekçesiyle sabit). yt-dlp formatları kötüden iyiye sıraladığı için sınır aşılırsa artık **en iyiler korunarak** sondan alınıyor (bkz. engine.c parse_json_metadata). Nadir sitelerde 256'yı aşan listeler için ileride dinamik ayrım düşünülebilir; pratikte gerek yok.

@@ -1,6 +1,8 @@
-# ff-dlp-viewer: Native Retro C Win32 Mimarisi (< 1 MB)
+# ff-dlp-viewer: Native C Win32 Mimarisi (< 1 MB)
 
-Bu sürüm, Python/PyInstaller çalışma zamanı şişkinliğini (bloat) tamamen ortadan kaldırır; uygulama **saf C (C11) / yerel Win32 API** ve Game Boy esintili 8-bit arayüz ile inşa edilmiştir.
+**Türkçe** · [English](NATIVE_ARCHITECTURE.md)
+
+Uygulama, Python/PyInstaller çalışma zamanı şişkinliğini (bloat) tamamen ortadan kaldırır; **saf C (C11) / yerel Win32 API** ve Game Boy esintili 8-bit arayüz ile inşa edilmiştir.
 
 ---
 

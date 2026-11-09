@@ -2,7 +2,7 @@
 ; English interface, clean per-user install under %LOCALAPPDATA% without admin rights
 
 #define MyAppName "ff-dlp-viewer"
-#define MyAppVersion "2.3.0"
+#define MyAppVersion "2.3.1"
 #define MyAppPublisher "Haluk"
 #define MyAppURL "https://github.com/haluked/yt-mini"
 #define MyAppExeName "ff-dlp-viewer.exe"

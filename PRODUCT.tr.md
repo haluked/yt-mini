@@ -1,4 +1,4 @@
-# Ürün: ff-dlp-viewer (Hafif Medya İndirici)
+# Ürün: ff-dlp-viewer
 
 <!-- impeccable:product-schema 1 -->
 

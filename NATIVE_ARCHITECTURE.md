@@ -1,6 +1,6 @@
-# ff-dlp-viewer: Native Retro C Win32 Architecture (< 1 MB)
+# ff-dlp-viewer: Native C Win32 Architecture (< 1 MB)
 
-**English** · [Türkçe](RETRO_ARCHITECTURE.tr.md)
+**English** · [Türkçe](NATIVE_ARCHITECTURE.tr.md)
 
 The app removes the Python/PyInstaller runtime bloat entirely and is built with
 **pure C (C11) / native Win32 API**, using a Game Boy-inspired 8-bit interface.

@@ -40,12 +40,12 @@
   targeting the copy the app actually uses (see the bootstrapper fix).
 
 ## 4. ffmpeg Distribution URL
-- **Description:** `FFMPEG_URL` in `bootstrapper.c` still points to the old `yt-mini`
-  repository's v2.0.0-beta release. When the yt-mini-lite repository is opened and its
-  first release is published, this URL must move to the new repository.
-- **Alternative:** Use gyan.dev or BtbN official builds as the ffmpeg source with a
-  pinned SHA-256 (with the LGPL/GPL license note). Decision pending in the distribution
-  architecture discussion.
+- **Done:** `FFMPEG_URL` in `bootstrapper.c` now points to
+  `releases/latest/download/ffmpeg.exe`, a permanent URL that follows the newest release.
+- **Release rule:** every release must upload `ffmpeg.exe` as an asset, otherwise the
+  standalone first-run bootstrapper cannot fetch it (see `RELEASE_CHECKLIST.md`).
+- **Later:** add a pinned SHA-256 check for the downloaded ffmpeg file (LGPL/GPL license
+  note included).
 
 ## 5. Installation Strategy (architecture — to be discussed)
 - **Decision (for now):** yt-dlp + ffmpeg are **always installed into the app's own
@@ -54,16 +54,7 @@
 - **Later:** adding to PATH could be offered as an **optional checkbox** in the installer
   (for advanced users). Any registry/environment change must be reversible.
 
-## 6. Identity/Brand Fix (yt-mini-lite transition)
-- The mutex (`Local\ff-dlp-viewer`), registry key
-  (`HKCU\Software\ff-dlp-viewer`), window class and titles still carry the
-  **ff-dlp-viewer** name. They must all be updated at once when moving to the
-  yt-mini-lite repository (a half-done rebrand mixes two names).
-- Note: if the window class name changes, `FindWindowW(UI_WINDOW_CLASS, ...)` in
-  `main.c` picks up the new name automatically for second-instance forwarding — changing
-  both sides in the same commit is enough.
-
-## 7. Format List Limit
+## 6. Format List Limit
 - MAX_FORMATS = 256 (fixed for memory reasons). Because yt-dlp lists formats from worst
   to best, the limit now keeps the **best** ones by taking from the end (see
   `parse_json_metadata` in engine.c). A dynamic split could be considered for rare sites

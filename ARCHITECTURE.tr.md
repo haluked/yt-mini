@@ -58,7 +58,7 @@ ff-dlp-viewer/
 ├── build.bat               # windres + gcc derlemesi ve boyut doğrulaması
 ├── DESIGN.md               # Game Boy 8-bit tasarım şartnamesi
 ├── PRODUCT.md              # Ürün şartnamesi
-├── RETRO_ARCHITECTURE.md   # Yerel yeniden yazımın boyut/çalışma zamanı gerekçesi
+├── NATIVE_ARCHITECTURE.md  # Yerel yeniden yazımın boyut/çalışma zamanı gerekçesi
 ├── NAMING.md               # Depo/ikili dosya adlandırma kararları
 ├── TODO.md                 # Yol haritası
 └── README.md               # Kullanıcı ve geliştirici belgeleri

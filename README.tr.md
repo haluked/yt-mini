@@ -1,6 +1,8 @@
-# ff-dlp-viewer (v2.3 Native Retro)
+# ff-dlp-viewer (v2.3.1)
 
 > Windows için ultra hafif (< 1 MB), çalışma zamanı gerektirmeyen (sıfır Python/Electron), yerel Win32 GUI tabanlı video ve ses indirme aracı.
+
+[En son sürümü indir](https://github.com/haluked/yt-mini/releases/latest)
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
@@ -11,9 +13,11 @@
 
 ## Genel Bakış
 
-**ff-dlp-viewer**, Python çalışma zamanı, PyInstaller veya Electron gibi ağır bağımlılıkları tamamen ortadan kaldırarak saf C11 ve yerel Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`) kullanılarak sıfırdan yeniden yazılmıştır.
+**ff-dlp-viewer**, Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`) üzerinde saf C11 ile yazılmış yerel bir Windows uygulamasıdır. Python çalışma zamanı, PyInstaller veya Electron bağımlılığı yoktur.
 
 Nihai çalıştırılabilir dosya boyutu **yalnızca ~343 KB** olup, bellek tüketimi 10-15 MB civarındadır.
+
+Bu yerel C11 derlemesi, uygulamanın bakımı yapılan tek sürümüdür.
 
 ---
 

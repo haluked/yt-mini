@@ -30,7 +30,7 @@ BIN_DIR = PROJECT_ROOT / "bin"
 INSTALLER_DIR = PROJECT_ROOT / "installer"
 
 APP_NAME = "ff-dlp-viewer"
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.3.1"
 PORTABLE_NAME = f"{APP_NAME}-v{APP_VERSION}-portable"
 
 

@@ -12,7 +12,7 @@
 #include <string.h>
 
 #define YTDLP_LATEST_URL L"https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-#define FFMPEG_URL       L"https://github.com/haluked/yt-mini/releases/download/v2.0.0-beta/ffmpeg.exe"
+#define FFMPEG_URL       L"https://github.com/haluked/yt-mini/releases/latest/download/ffmpeg.exe"
 
 #define IDC_BS_TITLE       101
 #define IDC_BS_DESC        102

@@ -1,8 +1,10 @@
-# ff-dlp-viewer (v2.3 Native Retro)
+# ff-dlp-viewer (v2.3.1)
 
 **English** · [Türkçe](README.tr.md)
 
 > An ultra-light (< 1 MB), runtime-free (zero Python/Electron) video and audio downloader for Windows, built on a native Win32 GUI.
+
+[Download the latest release](https://github.com/haluked/yt-mini/releases/latest)
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
@@ -13,9 +15,11 @@
 
 ## Overview
 
-**ff-dlp-viewer** was rewritten from scratch in pure C11 using the native Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`), removing heavy dependencies such as the Python runtime, PyInstaller and Electron entirely.
+**ff-dlp-viewer** is a native Windows application written in pure C11 on top of the Windows API (`user32.dll`, `gdi32.dll`, `comctl32.dll`, `shell32.dll`, `ole32.dll`). It has no Python runtime, PyInstaller or Electron dependency.
 
 The final executable is **only ~343 KB**, with memory usage around 10–15 MB.
+
+This native C11 build is the only maintained version of the app.
 
 ---
 

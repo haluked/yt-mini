@@ -59,7 +59,7 @@ ff-dlp-viewer/
 ├── build.bat               # windres + gcc build with size verification
 ├── DESIGN.md               # Game Boy 8-bit design specification
 ├── PRODUCT.md              # Product specification
-├── RETRO_ARCHITECTURE.md   # Size/runtime rationale of the native rewrite
+├── NATIVE_ARCHITECTURE.md  # Size/runtime rationale of the native rewrite
 ├── NAMING.md               # Repository/binary naming decisions
 ├── TODO.md                 # Roadmap
 └── README.md               # User and developer documentation
