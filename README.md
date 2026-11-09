@@ -6,7 +6,9 @@
 
 [Download the latest release](https://github.com/haluked/yt-mini/releases/latest)
 
-> The portable ZIP includes a full Gyan FFmpeg build (~100 MB) so Opus, MP3 and H.264 work out of the box. The Setup downloads the required tools on first run. The application executable itself is only ~355 KB.
+> The portable ZIP includes a full Gyan FFmpeg build (~100 MB) so Opus, MP3 and H.264 work out of the box. The Setup includes the tools as well. The application executable itself is only ~355 KB.
+>
+> When upgrading a portable copy, replace the **whole folder**; keeping an old `bin\ffmpeg.exe` would keep the old codec support.
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)

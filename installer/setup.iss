@@ -44,8 +44,8 @@ Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 ; Optional dependencies (copied into bin/ when present)
-Source: "..\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion external; Check: FileExists(ExpandConstant('{src}\..\bin\ffmpeg.exe'))
-Source: "..\bin\yt-dlp.exe"; DestDir: "{app}\bin"; Flags: ignoreversion external; Check: FileExists(ExpandConstant('{src}\..\bin\yt-dlp.exe'))
+Source: "..\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "..\bin\yt-dlp.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

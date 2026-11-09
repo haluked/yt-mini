@@ -4,7 +4,9 @@
 
 [En son sürümü indir](https://github.com/haluked/yt-mini/releases/latest)
 
-> Portable ZIP, Opus/MP3/H.264'ün kutudan çıkınca çalışması için tam Gyan FFmpeg build'ini (~100 MB) içerir. Setup sürümü gerekli araçları ilk çalıştırmada indirir. Uygulama exe'si yalnızca ~355 KB'dır.
+> Portable ZIP, Opus/MP3/H.264'ün kutudan çıkınca çalışması için tam Gyan FFmpeg build'ini (~100 MB) içerir. Setup sürümü de araçları içerir. Uygulama exe'si yalnızca ~355 KB'dır.
+>
+> Portable sürümü güncellerken **klasörün tamamını** değiştir; eski `bin\ffmpeg.exe` dosyasını tutmak eski codec desteğini korur.
 
 [![C11](https://img.shields.io/badge/Language-C11-00599C?style=flat-square&logo=c)](https://en.wikipedia.org/wiki/C11_(C_standard_revision))
 [![Platform](https://img.shields.io/badge/Platform-Windows_10_|_11-0078D6?style=flat-square&logo=windows)](https://microsoft.com/windows)
