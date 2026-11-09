@@ -6,7 +6,7 @@
 
 | Place | Name | Description |
 |---|---|---|
-| GitHub repository | **`haluked/yt-mini`** | The only home of the project. The current release is `v2.3.2`. |
+| GitHub repository | **`haluked/yt-mini`** | The only home of the project. The current release is `v2.4.0`. |
 | Product | **`ff-dlp-viewer`** | The name shown in the window, installer and documentation. |
 | Local development folder | **`ff-dlp-viewer`** | The folder name is kept as-is so existing paths and habits keep working. |
 | Binary name | `ff-dlp-viewer.exe` | Output of `build.bat`. |
@@ -17,7 +17,7 @@ The native C11/Win32 build is the only maintained version. Older Python/PyInstal
 prototypes are retired and exist only in the git history; they are not built, shipped
 or documented anywhere in the current tree.
 
-The version number moves forward from `v2.3.2`. There is only one active release line.
+The version number moves forward from `v2.4.0`. There is only one active release line.
 
 ## Why are there two names?
 

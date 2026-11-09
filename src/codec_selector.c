@@ -109,6 +109,7 @@ static int compare_ints_desc(const void *a, const void *b)
 
 int get_available_resolutions(const StreamFormat *formats, int count, int *out_resolutions, int max_res)
 {
+    if (!formats || !out_resolutions || count <= 0 || max_res <= 0) return 0;
     int num_res = 0;
     for (int i = 0; i < count; i++) {
         int h = formats[i].height;
@@ -484,6 +485,7 @@ static int select_video_mode(
             wcscpy(result->expected_container, L"mp4");
             if ((strcmp(best_norm_vc, "h264") == 0 || strcmp(best_norm_vc, "hevc") == 0) && strcmp(norm_ac, "aac") == 0) {
                 result->needs_reencode = 0;
+                result->needs_remux = 1;
                 wcscpy(result->reason, L"Remuxing the combined stream (stream copy) into an MP4 container.");
             } else {
                 result->needs_reencode = 1;

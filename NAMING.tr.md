@@ -6,7 +6,7 @@
 
 | Yer | İsim | Açıklama |
 |---|---|---|
-| GitHub deposu | **`haluked/yt-mini`** | Projenin tek evi. Güncel sürüm `v2.3.2`. |
+| GitHub deposu | **`haluked/yt-mini`** | Projenin tek evi. Güncel sürüm `v2.4.0`. |
 | Ürün | **`ff-dlp-viewer`** | Pencerede, kurulumda ve belgelerde görünen isim. |
 | Yerel geliştirme klasörü | **`ff-dlp-viewer`** | Mevcut yollar ve alışkanlıklar bozulmasın diye klasör adı korunuyor. |
 | İkili dosya adı | `ff-dlp-viewer.exe` | `build.bat` çıktısı. |
@@ -17,7 +17,7 @@ Yerel C11/Win32 derlemesi, bakımı yapılan tek sürümdür. Eski Python/PyInst
 prototipleri emekliye ayrıldı; yalnızca git geçmişinde duruyorlar. Güncel ağaçta
 derlenmiyor, paketlenmiyor ve belgelenmiyorlar.
 
-Sürüm numarası `v2.3.2`'den ileri gider. Tek aktif sürüm çizgisi vardır.
+Sürüm numarası `v2.4.0`'den ileri gider. Tek aktif sürüm çizgisi vardır.
 
 ## Neden iki isim var?
 

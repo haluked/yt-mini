@@ -198,7 +198,7 @@ $$\text{Opus} > \text{AAC} > \text{MP3}$$
   and fails the size check above 1 MB.
 - The installer is produced with Inno Setup (`installer/setup.iss`) for a per-user
   install under `%LOCALAPPDATA%` without administrator rights.
-- Current output: ~351 KB executable, ~10-15 MB idle RAM.
+- Current output: ~355 KB executable, ~10-15 MB idle RAM.
 
 ---
 

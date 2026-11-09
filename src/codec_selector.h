@@ -29,6 +29,7 @@ typedef struct {
     wchar_t resolution[32];
     int is_composite;
     int is_direct;
+    int needs_remux;           /* 1: container change only (stream copy, no re-encode) */
     int needs_reencode;
     int audio_only_reencode;   /* 1: the video stream is copied, only the audio is converted */
     wchar_t reason[256];

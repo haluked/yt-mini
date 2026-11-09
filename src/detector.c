@@ -26,11 +26,11 @@ int is_valid_url(const wchar_t *url)
         if (*p == L'"' || *p == L'\\' || iswcntrl(*p)) return 0;
     }
 
-    /* Scheme check: must start with http:// or https:// */
-    if (wcsncmp(url, L"http://", 7) == 0) {
+    /* Scheme check: must start with http:// or https:// (schemes are case-insensitive) */
+    if (_wcsnicmp(url, L"http://", 7) == 0) {
         return url[7] != L'\0';
     }
-    if (wcsncmp(url, L"https://", 8) == 0) {
+    if (_wcsnicmp(url, L"https://", 8) == 0) {
         return url[8] != L'\0';
     }
     return 0;
@@ -43,8 +43,9 @@ static void extract_host(const wchar_t *url, wchar_t *out_host, size_t max_len)
     const wchar_t *p = url;
     size_t n = 0;
 
-    if (wcsncmp(p, L"https://", 8) == 0) p += 8;
-    else if (wcsncmp(p, L"http://", 7) == 0) p += 7;
+    while (*p && iswspace(*p)) p++;
+    if (_wcsnicmp(p, L"https://", 8) == 0) p += 8;
+    else if (_wcsnicmp(p, L"http://", 7) == 0) p += 7;
 
     /* skip the user:password@ part */
     const wchar_t *at = wcschr(p, L'@');
@@ -55,6 +56,10 @@ static void extract_host(const wchar_t *url, wchar_t *out_host, size_t max_len)
         out_host[n++] = (wchar_t)towlower(*p++);
     }
     out_host[n] = L'\0';
+    /* A trailing dot is a valid fully-qualified name ("youtube.com."). */
+    while (n > 0 && out_host[n - 1] == L'.') {
+        out_host[--n] = L'\0';
+    }
 }
 
 /* Is the host exactly the given domain, or a subdomain of it?

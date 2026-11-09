@@ -56,6 +56,15 @@ static void test_detector(void)
     PlatformInfo p11 = detect_platform(L"https://vm.tiktok.com/ZMabc123/");
     assert(p11.type == PLATFORM_TIKTOK);
 
+    /* Scheme/host normalization: schemes are case-insensitive and a trailing
+       dot is a valid fully-qualified name. */
+    PlatformInfo p12 = detect_platform(L"HTTPS://WWW.YOUTUBE.COM/watch?v=abc");
+    assert(p12.type == PLATFORM_YOUTUBE);
+    PlatformInfo p13 = detect_platform(L"https://youtube.com./watch?v=abc");
+    assert(p13.type == PLATFORM_YOUTUBE);
+    PlatformInfo p14 = detect_platform(L"  https://www.youtube.com/watch?v=abc");
+    assert(p14.type == PLATFORM_YOUTUBE);
+
     printf("  -> Detector tests PASSED!\n");
 }
 
@@ -260,6 +269,17 @@ static void test_codec_selector(void)
     assert(wcscmp(r15.video_codec, L"vp9") == 0);
     assert(r15.needs_reencode == 1);
     assert(r15.audio_only_reencode == 0);
+
+    /* Test 16: Force MP4 on a single combined H.264+AAC stream in MKV:
+       only the container changes (remux), no re-encode. */
+    StreamFormat composite_mkv[] = {
+        {"mkv", "mkv", "avc1.640028", "mp4a.40.2", 1280, 720, 30, 2000, 0, 2000}
+    };
+    SelectionResult r16;
+    assert(select_best_format(composite_mkv, 1, L"video", 0, 1, L"opus", &r16));
+    assert(wcscmp(r16.expected_container, L"mp4") == 0);
+    assert(r16.needs_remux == 1);
+    assert(r16.needs_reencode == 0);
 
     printf("  -> Codec Selector tests PASSED!\n");
 }

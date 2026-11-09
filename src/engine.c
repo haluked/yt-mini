@@ -136,9 +136,18 @@ static int find_binary(const wchar_t *name, wchar_t *out_path, size_t max_len)
         }
     }
 
-    /* 5. System PATH */
-    if (SearchPathW(NULL, name, L".exe", (DWORD)max_len, out_path, NULL) > 0) {
-        return 1;
+    /* 5. System PATH.
+       Pass the PATH string explicitly: SearchPathW(NULL, ...) also searches the
+       current working directory first, which would allow a stray yt-dlp.exe in
+       the folder the app was started from to be executed. */
+    {
+        wchar_t path_env[32768];
+        DWORD path_len = GetEnvironmentVariableW(L"PATH", path_env,
+                                                 (DWORD)(sizeof(path_env) / sizeof(path_env[0])));
+        if (path_len > 0 && path_len < (DWORD)(sizeof(path_env) / sizeof(path_env[0])) &&
+            SearchPathW(path_env, name, L".exe", (DWORD)max_len, out_path, NULL) > 0) {
+            return 1;
+        }
     }
 
     return 0;
@@ -414,104 +423,182 @@ static wchar_t *build_child_environment(void)
     return env;
 }
 
-/* The bundled ffmpeg does not always include an MP3 encoder; to avoid showing
-   a pointless "MP3" option and failing downloads halfway, we check once
-   and cache the result. */
-int engine_ffmpeg_can_encode_mp3(void)
+/* The bundled ffmpeg may be a minimal build. We inspect its encoder list once
+   and remember which codecs are available, instead of assuming that an option
+   shown in the UI can actually be produced. */
+typedef struct {
+    int loaded;
+    int mp3;
+    int libopus;
+    int native_opus;
+    int libx264;
+    int h264_mf;
+} FfmpegCaps;
+
+static FfmpegCaps g_ffmpeg_caps;
+static SRWLOCK g_ffmpeg_caps_lock = SRWLOCK_INIT;
+
+/* Checks the encoder NAME token (the second word on a line of "ffmpeg -encoders"),
+   not the description text. */
+static int encoder_list_has(const char *out, const char *name)
 {
-    static int cached = -1;
-    if (cached >= 0) return cached;
+    const char *p = out;
+    size_t want = strlen(name);
+    if (!out || !name || want == 0) return 0;
 
-    wchar_t ffmpeg_path[MAX_PATH];
-    if (!engine_find_ffmpeg(ffmpeg_path, MAX_PATH)) return 0;
+    while (*p) {
+        const char *eol = strchr(p, '\n');
+        const char *q = p;
+        const char *tok;
+        size_t tok_len;
 
-    wchar_t cmd_line[MAX_PATH + 64];
-    _snwprintf(cmd_line, MAX_PATH + 64, L"\"%ls\" -hide_banner -encoders", ffmpeg_path);
-    cmd_line[MAX_PATH + 63] = L'\0';
+        if (!eol) eol = p + strlen(p);
 
-    HANDLE hReadPipe = NULL, hWritePipe = NULL;
-    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) return 0;
-    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+        while (q < eol && (*q == ' ' || *q == '\t')) q++;
+        /* First token is the flags field (e.g. V....D). */
+        while (q < eol && *q != ' ' && *q != '\t') q++;
+        while (q < eol && (*q == ' ' || *q == '\t')) q++;
+        tok = q;
+        while (q < eol && *q != ' ' && *q != '\t') q++;
+        tok_len = (size_t)(q - tok);
+        if (tok_len == want && strncmp(tok, name, want) == 0) return 1;
 
-    STARTUPINFOW si;
-    memset(&si, 0, sizeof(si));
-    si.cb = sizeof(si);
-    si.hStdInput = INVALID_HANDLE_VALUE;
-    si.hStdOutput = hWritePipe;
-    si.hStdError = hWritePipe;
-    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-
-    PROCESS_INFORMATION pi;
-    memset(&pi, 0, sizeof(pi));
-
-    wchar_t *child_env = build_child_environment();
-    BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
-        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, child_env, NULL, &si, &pi);
-    free(child_env);
-    CloseHandle(hWritePipe);
-    if (!ok) {
-        CloseHandle(hReadPipe);
-        return 0;
-    }
-
-    /* The output may be large; keep reading even after the buffer is full.
-       The total time is limited so a stuck ffmpeg cannot freeze startup. */
-    char out[32768];
-    size_t len = 0;
-    DWORD got = 0;
-    char chunk[4096];
-    DWORD start_tick = GetTickCount();
-    int finished = 0;
-
-    for (;;) {
-        DWORD avail = 0;
-        if (PeekNamedPipe(hReadPipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
-            DWORD want = avail > (DWORD)sizeof(chunk) ? (DWORD)sizeof(chunk) : avail;
-            if (!ReadFile(hReadPipe, chunk, want, &got, NULL) || got == 0) break;
-            if (len + got < sizeof(out)) {
-                memcpy(out + len, chunk, got);
-                len += got;
-            }
-            continue;
-        }
-        if (WaitForSingleObject(pi.hProcess, 20) == WAIT_OBJECT_0) {
-            /* Process finished: drain the remaining bytes one last time. */
-            while (PeekNamedPipe(hReadPipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
-                DWORD want = avail > (DWORD)sizeof(chunk) ? (DWORD)sizeof(chunk) : avail;
-                if (!ReadFile(hReadPipe, chunk, want, &got, NULL) || got == 0) break;
-                if (len + got < sizeof(out)) {
-                    memcpy(out + len, chunk, got);
-                    len += got;
-                }
-            }
-            finished = 1;
-            break;
-        }
-        if (GetTickCount() - start_tick > 5000) {
-            TerminateProcess(pi.hProcess, 1);
-            break;
-        }
-    }
-    out[len] = '\0';
-    WaitForSingleObject(pi.hProcess, 2000);
-    CloseHandle(hReadPipe);
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-
-    /* Cache the result only if ffmpeg actually ran and produced output;
-       otherwise a temporary error (AV lock, etc.) would disable MP3 for the whole session. */
-    if (finished) {
-        cached = (strstr(out, "libmp3lame") || strstr(out, "libshine") ||
-                  strstr(out, "mp3_mf")) ? 1 : 0;
-        return cached;
+        if (!*eol) break;
+        p = eol + 1;
     }
     return 0;
 }
 
+static void load_ffmpeg_caps(void)
+{
+    AcquireSRWLockExclusive(&g_ffmpeg_caps_lock);
+    if (g_ffmpeg_caps.loaded) {
+        ReleaseSRWLockExclusive(&g_ffmpeg_caps_lock);
+        return;
+    }
+
+    wchar_t ffmpeg_path[MAX_PATH];
+    if (engine_find_ffmpeg(ffmpeg_path, MAX_PATH)) {
+        wchar_t cmd_line[MAX_PATH + 64];
+        _snwprintf(cmd_line, MAX_PATH + 64, L"\"%ls\" -hide_banner -encoders", ffmpeg_path);
+        cmd_line[MAX_PATH + 63] = L'\0';
+
+        HANDLE hReadPipe = NULL, hWritePipe = NULL;
+        SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+        if (CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+            SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+
+            STARTUPINFOW si;
+            memset(&si, 0, sizeof(si));
+            si.cb = sizeof(si);
+            si.hStdInput = INVALID_HANDLE_VALUE;
+            si.hStdOutput = hWritePipe;
+            si.hStdError = hWritePipe;
+            si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+            si.wShowWindow = SW_HIDE;
+
+            PROCESS_INFORMATION pi;
+            memset(&pi, 0, sizeof(pi));
+
+            wchar_t *child_env = build_child_environment();
+            BOOL ok = CreateProcessW(NULL, cmd_line, NULL, NULL, TRUE,
+                CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, child_env, NULL, &si, &pi);
+            free(child_env);
+            CloseHandle(hWritePipe);
+
+            if (ok) {
+                char out[32768];
+                size_t len = 0;
+                DWORD got = 0;
+                char chunk[4096];
+                DWORD start_tick = GetTickCount();
+                int finished = 0;
+
+                for (;;) {
+                    DWORD avail = 0;
+                    if (PeekNamedPipe(hReadPipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+                        DWORD want = avail > (DWORD)sizeof(chunk) ? (DWORD)sizeof(chunk) : avail;
+                        if (!ReadFile(hReadPipe, chunk, want, &got, NULL) || got == 0) break;
+                        if (len + got < sizeof(out)) {
+                            memcpy(out + len, chunk, got);
+                            len += got;
+                        }
+                        continue;
+                    }
+                    if (WaitForSingleObject(pi.hProcess, 20) == WAIT_OBJECT_0) {
+                        while (PeekNamedPipe(hReadPipe, NULL, 0, NULL, &avail, NULL) && avail > 0) {
+                            DWORD want = avail > (DWORD)sizeof(chunk) ? (DWORD)sizeof(chunk) : avail;
+                            if (!ReadFile(hReadPipe, chunk, want, &got, NULL) || got == 0) break;
+                            if (len + got < sizeof(out)) {
+                                memcpy(out + len, chunk, got);
+                                len += got;
+                            }
+                        }
+                        finished = 1;
+                        break;
+                    }
+                    if (GetTickCount() - start_tick > 5000) {
+                        TerminateProcess(pi.hProcess, 1);
+                        break;
+                    }
+                }
+                out[len] = '\0';
+                WaitForSingleObject(pi.hProcess, 2000);
+                CloseHandle(hReadPipe);
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+
+                if (finished) {
+                    g_ffmpeg_caps.mp3 = (strstr(out, "libmp3lame") || strstr(out, "libshine") ||
+                                         strstr(out, "mp3_mf")) ? 1 : 0;
+                    g_ffmpeg_caps.libopus = encoder_list_has(out, "libopus");
+                    g_ffmpeg_caps.native_opus = encoder_list_has(out, "opus");
+                    g_ffmpeg_caps.libx264 = encoder_list_has(out, "libx264");
+                    g_ffmpeg_caps.h264_mf = encoder_list_has(out, "h264_mf");
+                    g_ffmpeg_caps.loaded = 1;
+                }
+            } else {
+                CloseHandle(hReadPipe);
+            }
+        }
+    }
+
+    ReleaseSRWLockExclusive(&g_ffmpeg_caps_lock);
+}
+
+int engine_ffmpeg_can_encode_mp3(void)
+{
+    load_ffmpeg_caps();
+    return g_ffmpeg_caps.mp3;
+}
+
+static int ffmpeg_has_libopus(void)
+{
+    load_ffmpeg_caps();
+    return g_ffmpeg_caps.libopus;
+}
+
+static int ffmpeg_has_native_opus(void)
+{
+    load_ffmpeg_caps();
+    return g_ffmpeg_caps.native_opus;
+}
+
+static int ffmpeg_has_libx264(void)
+{
+    load_ffmpeg_caps();
+    return g_ffmpeg_caps.libx264;
+}
+
+static int ffmpeg_has_h264_mf(void)
+{
+    load_ffmpeg_caps();
+    return g_ffmpeg_caps.h264_mf;
+}
+
 void format_duration_str(int seconds, wchar_t *out_str, size_t max_len)
 {
+    if (!out_str || max_len == 0) return;
     if (seconds <= 0) {
         wcsncpy(out_str, L"Unknown", max_len - 1);
         out_str[max_len - 1] = L'\0';
@@ -531,6 +618,7 @@ void format_duration_str(int seconds, wchar_t *out_str, size_t max_len)
 
 void format_bytes_str(long long bytes, wchar_t *out_str, size_t max_len)
 {
+    if (!out_str || max_len == 0) return;
     if (bytes <= 0) {
         wcsncpy(out_str, L"0.0 MB", max_len - 1);
         out_str[max_len - 1] = L'\0';
@@ -550,11 +638,15 @@ typedef struct {
     void *user_data;
 } FetchThreadParams;
 
-static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
+static int parse_json_metadata(const char *json_str, MediaMetadata *meta)
 {
     memset(meta, 0, sizeof(MediaMetadata));
     cJSON *root = cJSON_Parse(json_str);
-    if (!root) return;
+    if (!root) return 0;
+    if (!cJSON_IsObject(root)) {
+        cJSON_Delete(root);
+        return 0;
+    }
 
     cJSON *title_item = cJSON_GetObjectItem(root, "title");
     if (cJSON_IsString(title_item) && title_item->valuestring) {
@@ -664,6 +756,9 @@ static void parse_json_metadata(const char *json_str, MediaMetadata *meta)
     }
 
     cJSON_Delete(root);
+    /* A JSON object without a title and without any usable format is not a
+       successful metadata response. */
+    return (meta->title[0] != L'\0' || meta->format_count > 0);
 }
 
 static DWORD WINAPI fetch_thread_main(LPVOID param)
@@ -774,6 +869,7 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     CloseHandle(hErrWritePipe);
 
     /* Read JSON stdout */
+    #define MAX_FETCH_JSON (32u * 1024u * 1024u)
     size_t buf_capacity = 1024 * 1024;
     size_t buf_len = 0;
     char *json_buf = (char*)malloc(buf_capacity);
@@ -822,7 +918,16 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
         if (buf_len + bytes_read + 1 >= buf_capacity) {
             /* Grow the capacity ONLY if realloc succeeds. Otherwise the old
                buffer stays small, the check passes and memcpy overflows. */
+            if (buf_capacity >= MAX_FETCH_JSON) {
+                truncated = 1;
+                continue;
+            }
             size_t new_cap = (buf_capacity * 2) + bytes_read + 1;
+            if (new_cap > MAX_FETCH_JSON) new_cap = MAX_FETCH_JSON;
+            if (buf_len + bytes_read + 1 > new_cap) {
+                truncated = 1;
+                continue;
+            }
             char *new_buf = (char*)realloc(json_buf, new_cap);
             if (!new_buf) {
                 truncated = 1;
@@ -898,9 +1003,13 @@ static DWORD WINAPI fetch_thread_main(LPVOID param)
     } else {
         MediaMetadata *meta = (MediaMetadata*)malloc(sizeof(MediaMetadata));
         if (meta) {
-            parse_json_metadata(json_buf, meta);
+            int parsed = parse_json_metadata(json_buf, meta);
             meta->platform = detect_platform(p->url);
-            if (p->callback) p->callback(1, meta, NULL, p->user_data);
+            if (parsed) {
+                if (p->callback) p->callback(1, meta, NULL, p->user_data);
+            } else if (p->callback) {
+                p->callback(0, NULL, L"Could not read the media info (invalid yt-dlp response).", p->user_data);
+            }
             free(meta);
         } else if (p->callback) {
             p->callback(0, NULL, L"Out of memory.", p->user_data);
@@ -925,6 +1034,7 @@ int engine_fetch_info_async(
     void *user_data
 )
 {
+    if (!url || !url[0]) return 0;
     EnterCriticalSection(&g_engine_cs);
     if (g_engine_state != ENGINE_STATE_IDLE) {
         LeaveCriticalSection(&g_engine_cs);
@@ -1069,7 +1179,10 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     }
 
     int audio_mode = (wcscmp(p->selection.resolution, L"Audio Only") == 0);
-    int needs_ffmpeg = audio_mode || !p->selection.is_direct || p->selection.needs_reencode;
+    /* A single combined stream can be downloaded without ffmpeg. A container
+       change (remux) or a codec conversion still needs it. */
+    int needs_ffmpeg = audio_mode || p->selection.needs_remux || p->selection.needs_reencode ||
+                       (!p->selection.is_direct && !p->selection.is_composite);
     if (needs_ffmpeg && !has_ffmpeg) {
         download_fail(p, L"ffmpeg.exe not found. ffmpeg is required for merging or converting.");
         return 0;
@@ -1081,6 +1194,30 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         !engine_ffmpeg_can_encode_mp3()) {
         download_fail(p, L"This ffmpeg build has no MP3 encoder. Please choose AAC (m4a) or Opus.");
         return 0;
+    }
+
+    /* If the source is not already Opus, an encoder is required. Prefer
+       libopus; otherwise fall back to ffmpeg's built-in experimental encoder
+       explicitly, instead of letting yt-dlp fail after downloading. */
+    int use_native_opus = 0;
+    if (audio_mode && _wcsicmp(p->selection.expected_container, L"opus") == 0 &&
+        p->selection.needs_reencode && has_ffmpeg) {
+        if (!ffmpeg_has_libopus()) {
+            if (ffmpeg_has_native_opus()) {
+                use_native_opus = 1;
+            } else {
+                download_fail(p, L"This ffmpeg build has no Opus encoder. Please choose AAC (m4a).");
+                return 0;
+            }
+        }
+    }
+
+    /* A VP9/AV1 -> MP4 conversion needs an H.264 encoder. If libx264 is not
+       available, use the Windows Media Foundation encoder explicitly. */
+    int use_h264_mf = 0;
+    if (!audio_mode && p->selection.needs_reencode && has_ffmpeg &&
+        !ffmpeg_has_libx264() && ffmpeg_has_h264_mf()) {
+        use_h264_mf = 1;
     }
 
     if (!ensure_directory(p->dest_dir)) {
@@ -1112,10 +1249,13 @@ static DWORD WINAPI download_thread_main(LPVOID param)
     }
 
     /* If the folder name contains '%', the escape doubles (<= 2*MAX_PATH).
-       Size the buffer accordingly and always guarantee a NUL. */
-    wchar_t out_template[MAX_PATH * 2 + 128];
+       Size the buffer accordingly and always guarantee a NUL.
+       The format id is part of the name so a different quality or a later
+       audio-only download can never overwrite (or be mistaken for) an existing
+       video file. */
+    wchar_t out_template[MAX_PATH * 2 + 512];
     _snwprintf(out_template, sizeof(out_template)/sizeof(wchar_t),
-        L"-o \"%ls\\%%(title).150B [%%(id)s].%%(ext)s\"", dir_escaped);
+        L"-o \"%ls\\%%(title).150B [%%(id)s] [%%(format_id)s].%%(ext)s\"", dir_escaped);
     out_template[(sizeof(out_template)/sizeof(wchar_t)) - 1] = L'\0';
 
     /* Instead of guessing the final path from text, we have yt-dlp write it to
@@ -1154,6 +1294,9 @@ static DWORD WINAPI download_thread_main(LPVOID param)
             wcscpy(extra_opts, L"-x --audio-format mp3");
         } else if (_wcsicmp(p->selection.expected_container, L"m4a") == 0) {
             wcscpy(extra_opts, L"-x --audio-format m4a");
+        } else if (use_native_opus) {
+            wcscpy(extra_opts,
+                   L"-x --audio-format opus --ppa \"ExtractAudio:-c:a opus -strict -2\"");
         } else {
             wcscpy(extra_opts, L"-x --audio-format opus");
         }
@@ -1164,8 +1307,17 @@ static DWORD WINAPI download_thread_main(LPVOID param)
         _snwprintf(extra_opts, 511,
             L"--merge-output-format %ls --ppa \"Merger:-c:v copy -c:a aac\"",
             p->selection.expected_container);
+    } else if (p->selection.needs_remux) {
+        /* A single stream is not "merged", so --merge-output-format would be
+           ignored. --remux-video changes the container without re-encoding. */
+        _snwprintf(extra_opts, 511, L"--remux-video %ls", p->selection.expected_container);
     } else if (p->selection.needs_reencode) {
         _snwprintf(extra_opts, 511, L"--recode-video %ls", p->selection.expected_container);
+        if (use_h264_mf) {
+            size_t used = wcslen(extra_opts);
+            _snwprintf(extra_opts + used, 511 - used,
+                       L" --ppa \"VideoConvertor:-c:v h264_mf\"");
+        }
     } else if (!p->selection.is_direct) {
         _snwprintf(extra_opts, 511, L"--merge-output-format %ls", p->selection.expected_container);
     }
@@ -1426,6 +1578,7 @@ int engine_download_async(
     void *user_data
 )
 {
+    if (!url || !url[0] || !selection || !dest_dir || !dest_dir[0]) return 0;
     EnterCriticalSection(&g_engine_cs);
     if (g_engine_state != ENGINE_STATE_IDLE) {
         LeaveCriticalSection(&g_engine_cs);

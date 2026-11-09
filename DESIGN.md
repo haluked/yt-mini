@@ -167,7 +167,7 @@ right-aligned at the bottom: `OK`, `YES`, `NO`, `CANCEL`. `Enter` triggers the d
   `gb_round_window`. Radii are `GB_RADIUS_SMALL` (3) / `GB_RADIUS_LARGE` (5).
 - Main window, layout and state management: `src/ui.c`.
 - Scaling: `gb_scale()` / `S()` — 96 DPI base, Per-Monitor V2.
-- Size budget: **< 1 MB mandatory**; the current build is ~351 KB.
+- Size budget: **< 1 MB mandatory**; the current build is ~355 KB.
 - When adding a new component: pick the color from the palette, use a 2 px frame, draw
   all five states (normal, hover, pressed, disabled, focus), and keep the text short and
   plain English.

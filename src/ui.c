@@ -2134,7 +2134,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
                 ShowWindow(hWnd, SW_RESTORE);
                 SetForegroundWindow(hWnd);
             } else if (wmId == ID_TRAY_CHECK_UPDATE) {
-                bootstrapper_update_ytdlp(hWnd);
+                if (engine_is_busy()) {
+                    gb_message_box(hWnd, L"UPDATE",
+                        L"A fetch or download is still in progress.\nPlease wait for it to finish before updating yt-dlp.",
+                        MB_OK | MB_ICONWARNING);
+                } else {
+                    bootstrapper_update_ytdlp(hWnd);
+                }
             } else if (wmId == ID_TRAY_EXIT) {
                 int can_exit = 1;
                 if (engine_is_busy()) {

@@ -15,7 +15,7 @@ Checklist to verify before ff-dlp-viewer is published on GitHub or shipped to en
   - File sanitization (Windows reserved characters, path traversal, reserved names, MAX_PATH) is verified.
 
 - [x] **Size and Performance**:
-  - `build.bat` verifies the executable stays under 1 MB (current: ~351 KB).
+  - `build.bat` verifies the executable stays under 1 MB (current: ~355 KB).
   - Idle RAM measured at ~10–15 MB.
   - No external runtime: only native Windows system DLLs are linked.
 
@@ -38,13 +38,14 @@ Checklist to verify before ff-dlp-viewer is published on GitHub or shipped to en
   - First-run bootstrapper downloads yt-dlp/ffmpeg when missing.
 
 - [x] **Single Active Version**:
-  - The current version is `v2.3.2`; only one active release line exists.
+  - The current version is `v2.4.0`; only one active release line exists.
   - Only one release and one tag remain on GitHub. Older releases/assets are removed.
   - `ffmpeg.exe` is uploaded as a release asset so
     `releases/latest/download/ffmpeg.exe` keeps working for the bootstrapper.
 
 - [x] **License Compliance**:
-  - `LICENSE` contains the MIT License plus the usage terms for yt-dlp (The Unlicense) and FFmpeg (LGPL v2.1+) as standalone binaries.
+  - `LICENSE` is the GNU GPLv3 text for the project. `THIRD_PARTY_NOTICES.md` lists yt-dlp (The Unlicense), FFmpeg (GPLv3, Gyan essentials static build), cJSON (MIT) and the MinGW-w64 runtime exception.
+  - FFmpeg is shipped as a separate executable; its exact source commit and build source are listed in `THIRD_PARTY_NOTICES.md`.
 
 - [ ] **User Approval & GitHub Push**:
   - No push to GitHub happens until Haluk approves it.

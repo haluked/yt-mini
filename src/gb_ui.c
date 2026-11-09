@@ -1081,6 +1081,14 @@ int gb_message_box(HWND owner, const wchar_t *title, const wchar_t *text, UINT f
     if (!title) title = L"Info";
     if (!text) text = L"";
 
+    /* A message box can be requested while another one is already pumping
+       messages (for example a download error during the Quit confirmation).
+       The custom box uses one global state, so a nested request would clobber
+       it. Fall back to a native box for that rare case. */
+    if (g_msg.hwnd && IsWindow(g_msg.hwnd)) {
+        return MessageBoxW(owner, text, title, flags);
+    }
+
     if (!registered) {
         memset(&wc, 0, sizeof(wc));
         wc.cbSize = sizeof(WNDCLASSEXW);

@@ -8,10 +8,70 @@
 #include <windows.h>
 #include <wchar.h>
 #include <stdio.h>
+#include <shlobj.h>
 
-#define APP_VERSION_STR L"2.3.2"
+#define APP_VERSION_STR L"2.4.0"
 #define APP_MUTEX_NAME  L"Local\\ff-dlp-viewer"
 #define WM_COPYDATA_URL 1
+
+/* If the first instance is still in the first-run bootstrapper, it has no
+   window yet and WM_COPYDATA cannot be delivered. Store the link for the
+   instance that is starting up instead of silently dropping it. */
+static int pending_url_path(wchar_t *path, size_t max_len)
+{
+    wchar_t appdata[MAX_PATH];
+    if (SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata) != S_OK) return 0;
+    _snwprintf(path, max_len, L"%ls\\ff-dlp-viewer\\pending_url.txt", appdata);
+    path[max_len - 1] = L'\0';
+    return 1;
+}
+
+static int save_pending_url(const wchar_t *url)
+{
+    wchar_t path[MAX_PATH];
+    wchar_t dir[MAX_PATH];
+    if (!url || !url[0] || !pending_url_path(path, MAX_PATH)) return 0;
+
+    wcsncpy(dir, path, MAX_PATH - 1);
+    dir[MAX_PATH - 1] = L'\0';
+    wchar_t *slash = wcsrchr(dir, L'\\');
+    if (slash) *slash = L'\0';
+    SHCreateDirectoryExW(NULL, dir, NULL);
+
+    HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    DWORD written = 0;
+    DWORD bytes = (DWORD)((wcslen(url) + 1) * sizeof(wchar_t));
+    int ok = WriteFile(h, url, bytes, &written, NULL) && written == bytes;
+    CloseHandle(h);
+    return ok;
+}
+
+static int take_pending_url(wchar_t *out, size_t max_len)
+{
+    wchar_t path[MAX_PATH];
+    if (!out || max_len < 2 || !pending_url_path(path, MAX_PATH)) return 0;
+
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+
+    DWORD bytes = 0;
+    DWORD capacity = (DWORD)((max_len - 1) * sizeof(wchar_t));
+    int ok = ReadFile(h, out, capacity, &bytes, NULL) && bytes >= sizeof(wchar_t);
+    CloseHandle(h);
+    DeleteFileW(path);
+
+    size_t chars = bytes / sizeof(wchar_t);
+    if (chars >= max_len) chars = max_len - 1;
+    out[chars] = L'\0';
+    if (!ok || !is_valid_url(out)) {
+        out[0] = L'\0';
+        return 0;
+    }
+    return 1;
+}
 
 static void show_cli_help(void)
 {
@@ -35,10 +95,12 @@ static void show_cli_help(void)
 static int forward_to_existing_instance(const wchar_t *url)
 {
     HWND existing = NULL;
-    for (int retry = 0; retry < 12; retry++) {
+    /* A few seconds covers the window-creation gap; a first-run bootstrapper
+       still has no window, so main stores the link in pending_url.txt. */
+    for (int retry = 0; retry < 50; retry++) {
         existing = FindWindowW(UI_WINDOW_CLASS, NULL);
         if (existing) break;
-        Sleep(50);
+        Sleep(100);
     }
     if (!existing) return 0;
 
@@ -121,7 +183,11 @@ int WINAPI wWinMain(
 
     HANDLE instance_mutex = CreateMutexW(NULL, TRUE, APP_MUTEX_NAME);
     if (instance_mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
-        forward_to_existing_instance(start_url[0] ? start_url : NULL);
+        if (!forward_to_existing_instance(start_url[0] ? start_url : NULL) &&
+            start_url[0] != L'\0') {
+            /* The running copy may still be in the first-run setup dialog. */
+            save_pending_url(start_url);
+        }
         CloseHandle(instance_mutex);
         return 0; /* Firmly prevent a second copy from opening a window */
     }
@@ -136,6 +202,10 @@ int WINAPI wWinMain(
             CloseHandle(instance_mutex);
         }
         return 0;
+    }
+
+    if (start_url[0] == L'\0') {
+        take_pending_url(start_url, 1024);
     }
 
     int ret = ui_run(hInstance, nCmdShow, start_url[0] ? start_url : NULL);

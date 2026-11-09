@@ -14,7 +14,7 @@ doğrulanması gereken liste:
   - Dosya adı temizliği (Windows yasak karakterler, yol aşımı, ayrılmış adlar, MAX_PATH) doğrulandı.
 
 - [x] **Boyut ve Performans**:
-  - `build.bat` çalıştırılabilir dosyanın 1 MB altında kaldığını doğruluyor (mevcut: ~351 KB).
+  - `build.bat` çalıştırılabilir dosyanın 1 MB altında kaldığını doğruluyor (mevcut: ~355 KB).
   - Boşta RAM ~10–15 MB ölçüldü.
   - Harici çalışma zamanı yok: yalnızca yerel Windows sistem DLL'lerine bağlanıyor.
 
@@ -37,13 +37,14 @@ doğrulanması gereken liste:
   - İlk çalıştırma bootstrapper'ı eksikse yt-dlp/ffmpeg indiriyor.
 
 - [x] **Tek Aktif Sürüm**:
-  - Güncel sürüm `v2.3.2`; tek aktif sürüm çizgisi var.
+  - Güncel sürüm `v2.4.0`; tek aktif sürüm çizgisi var.
   - GitHub'da tek release ve tek tag kalıyor. Eski release/asset'ler kaldırılıyor.
   - Bootstrapper'ın `releases/latest/download/ffmpeg.exe` adresi çalışsın diye
     `ffmpeg.exe` release asset'i olarak yükleniyor.
 
 - [x] **Lisans Uyumluluğu**:
-  - `LICENSE`, MIT Lisansı ile birlikte bağımsız ikili dosyalar olarak yt-dlp (The Unlicense) ve FFmpeg (LGPL v2.1+) kullanım şartlarını içeriyor.
+  - `LICENSE` projenin GNU GPLv3 metnidir. `THIRD_PARTY_NOTICES.md`; yt-dlp (The Unlicense), FFmpeg (GPLv3, Gyan essentials statik build), cJSON (MIT) ve MinGW-w64 runtime istisnasını listeler.
+  - FFmpeg ayrı bir çalıştırılabilir dosya olarak dağıtılır; tam kaynak commit'i ve build kaynağı `THIRD_PARTY_NOTICES.md` içindedir.
 
 - [ ] **Kullanıcı Onayı ve GitHub Push**:
   - Haluk onaylayana kadar GitHub'a hiçbir push yapılmaz.

@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -30,7 +31,7 @@ BIN_DIR = PROJECT_ROOT / "bin"
 INSTALLER_DIR = PROJECT_ROOT / "installer"
 
 APP_NAME = "ff-dlp-viewer"
-APP_VERSION = "2.3.2"
+APP_VERSION = "2.4.0"
 PORTABLE_NAME = f"{APP_NAME}-v{APP_VERSION}-portable"
 
 
@@ -120,14 +121,20 @@ def build_portable_package() -> Path:
         "  - To quit completely, right-click the tray icon and choose 'Quit'.\n\n"
         "Downloads are saved to your Videos folder by default.\n"
         "Use 'Choose Folder' to pick another folder.\n\n"
+        "License: GNU GPLv3 or later. The bundled yt-dlp (The Unlicense) and\n"
+        "FFmpeg (GPLv3, Gyan essentials) keep their own terms; see\n"
+        "THIRD_PARTY_NOTICES.md.\n\n"
         "Enjoy!\n",
         encoding="utf-8"
     )
 
-    # 4. License
+    # 4. License and third-party notices
     license_src = PROJECT_ROOT / "LICENSE"
     if license_src.is_file():
         shutil.copy2(license_src, bundle_dir / "LICENSE")
+    notices_src = PROJECT_ROOT / "THIRD_PARTY_NOTICES.md"
+    if notices_src.is_file():
+        shutil.copy2(notices_src, bundle_dir / "THIRD_PARTY_NOTICES.md")
 
     # 5. ZIP archive (keeps the top-level folder name)
     zip_base = DIST_DIR / PORTABLE_NAME
@@ -166,13 +173,34 @@ def build_inno_setup():
         return None
 
     iss_file = INSTALLER_DIR / "setup.iss"
-    cmd = [str(iscc), str(iss_file)]
-    print(f"Running ISCC: {iscc}")
-    res = subprocess.run(cmd, cwd=str(INSTALLER_DIR))
-    if res.returncode != 0:
-        raise RuntimeError("Inno Setup build failed!")
+    setup_name = f"{APP_NAME}-Setup-v{APP_VERSION}.exe"
+    setup_exe = DIST_DIR / setup_name
 
-    setup_exe = DIST_DIR / f"{APP_NAME}-Setup-v{APP_VERSION}.exe"
+    # Build into a private temp folder first. Some antivirus products lock the
+    # output file while Inno Setup updates its resources, which makes the
+    # compiler fail with "EndUpdateResource failed". A temp folder plus a final
+    # copy avoids that race and never leaves a partial Setup.exe in dist/.
+    temp_out = Path(tempfile.mkdtemp(prefix="ffdlp-setup-"))
+    cmd = [
+        str(iscc),
+        f"/O{temp_out}",
+        f"/F{Path(setup_name).stem}",
+        str(iss_file),
+    ]
+    print(f"Running ISCC: {iscc}")
+    try:
+        res = subprocess.run(cmd, cwd=str(INSTALLER_DIR))
+        if res.returncode != 0:
+            raise RuntimeError("Inno Setup build failed!")
+        built = temp_out / setup_name
+        if not built.is_file():
+            raise RuntimeError("Inno Setup did not produce the expected Setup.exe")
+        temp_setup = DIST_DIR / (setup_name + ".tmp")
+        shutil.copy2(built, temp_setup)
+        os.replace(temp_setup, setup_exe)
+    finally:
+        shutil.rmtree(temp_out, ignore_errors=True)
+
     if setup_exe.is_file():
         print(f"[SUCCESS] Installer produced: {setup_exe}")
         return setup_exe

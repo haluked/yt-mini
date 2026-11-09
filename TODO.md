@@ -44,7 +44,7 @@
   `releases/latest/download/ffmpeg.exe`, a permanent URL that follows the newest release.
 - **Release rule:** every release must upload `ffmpeg.exe` as an asset, otherwise the
   standalone first-run bootstrapper cannot fetch it (see `RELEASE_CHECKLIST.md`).
-- **Later:** add a pinned SHA-256 check for the downloaded ffmpeg file (LGPL/GPL license
+- **Later:** add a pinned SHA-256 check for the downloaded ffmpeg file (GPLv3 license
   note included).
 
 ## 5. Installation Strategy (architecture — to be discussed)

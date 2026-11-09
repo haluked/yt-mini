@@ -28,7 +28,7 @@
 - **Sürüm kuralı:** Her sürümde `ffmpeg.exe` asset olarak yüklenmeli; aksi halde
   bağımsız exe'nin ilk çalıştırma bootstrapper'ı dosyayı indiremez (bkz.
   `RELEASE_CHECKLIST.md`).
-- **İleride:** İndirilen ffmpeg için sabit SHA-256 kontrolü eklenmeli (LGPL/GPL lisans
+- **İleride:** İndirilen ffmpeg için sabit SHA-256 kontrolü eklenmeli (GPLv3 lisans
   notuyla birlikte).
 
 ## 5. Kurulum Stratejisi (Architecture — tartışılacak)
